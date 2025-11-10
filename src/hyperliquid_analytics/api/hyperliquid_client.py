@@ -27,7 +27,7 @@ class HyperliquidClient:
             self._logger.debug("Payload=%s data=%s", payload, data)
             return data
 
-    async def fetch_ohlcv(self, symbol: str, timeframe: TimeFrame, limit: int) -> dict[str, Any]:
+    async def fetch_ohlcv(self, symbol: str, timeframe: TimeFrame, limit: int) -> MarketData:
         end_ms = int(time()) * 1_000
         start_ms = end_ms - timeframe.millis*limit
 
@@ -60,3 +60,15 @@ class HyperliquidClient:
             candles=candles,
             last_updated=datetime.now(tz=timezone.utc),
         )
+    
+        
+    async def fetch_user_fills(self, user:str, start_ms, end_ms, aggregate=False) -> dict[str, Any]:
+        payload = {
+            "type": "userFills",
+            "user": user,
+            "startTime": start_ms,
+            "endTime": end_ms,
+            "aggregateByTime": aggregate,
+            }
+        return await self._request(payload)
+
