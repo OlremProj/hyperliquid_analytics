@@ -36,7 +36,7 @@ class ApiClient:
                 request_info=response.request_info,
                 history=response.history,
                 status=response.status,
-                message=text,                             
+                message=text,                           
                 headers=response.headers,
             )
         return await response.json()
