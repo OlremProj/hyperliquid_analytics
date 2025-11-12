@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import logging
 
+from src.hyperliquid_analytics.models.perp_models import MarginTableEntry, PerpMeta, PerpUniverseAsset, PerpAssetContext, MetaAndAssetCtxsResponse
 from src.hyperliquid_analytics.config import Settings
 from src.hyperliquid_analytics.api.client_api import ApiClient
 from src.hyperliquid_analytics.models.data_models import OHLCVData, TimeFrame, MarketData
@@ -72,3 +73,26 @@ class HyperliquidClient:
             }
         return await self._request(payload)
 
+    async def fetch_meta_and_asset_contexts(self):
+        payload={
+                "type": "metaAndAssetCtxs",
+                }
+        raw_meta, asset_ctxs = await self._request(payload)
+
+        perp_universe = [
+            PerpUniverseAsset.model_validate(item)
+            for item in raw_meta.get("universe", [])
+        ]
+        margin_tables = [
+            MarginTableEntry.model_validate(item)
+            for item in raw_meta.get("marginTables", [])
+        ]
+        contexts = [
+            PerpAssetContext.model_validate(item) 
+            for item in asset_ctxs
+        ]
+
+        perp_meta = PerpMeta(universe=perp_universe, margin_tables=margin_tables)
+
+        meta_assets = MetaAndAssetCtxsResponse(meta=perp_meta, asset_contexts=contexts)
+        return meta_assets

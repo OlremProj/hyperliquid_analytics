@@ -15,3 +15,4 @@ pandas-stubs>=2.1.0
 hyperliquid-python-sdk
 requests
 aiohttp
+duckdb

@@ -1,5 +1,6 @@
 """Tests pour HyperliquidClient."""
 
+from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Any
 
@@ -10,6 +11,7 @@ from src.hyperliquid_analytics.api.hyperliquid_client import (
     HyperliquidClient,
 )
 from src.hyperliquid_analytics.models.data_models import TimeFrame
+from src.hyperliquid_analytics.models.perp_models import MetaAndAssetCtxsResponse
 
 
 @pytest.fixture(autouse=True)
@@ -114,3 +116,159 @@ async def test_fetch_ohlcv_raises_hyperliquid_error(monkeypatch):
     assert exc.value.status == 422
     assert "Failed to deserialize" in str(exc.value)
 
+
+@pytest.mark.asyncio
+async def test_fetch_meta_and_asset_contexts_success(monkeypatch):
+    """Vérifie que fetch_meta_and_asset_contexts mappe correctement la réponse."""
+
+    captured_payload: dict[str, Any] = {}
+
+    sample_response = [
+        {
+            "universe": [
+                {
+                    "name": "BTC",
+                    "szDecimals": 5,
+                    "maxLeverage": "50",
+                    "onlyIsolated": False,
+                    "marginMode": None,
+                    "isDelisted": False,
+                }
+            ],
+            "marginTables": [
+                [
+                    50,
+                    {
+                        "description": "standard",
+                        "marginTiers": [
+                            {
+                                "lowerBound": "0.0",
+                                "maxLeverage": "50",
+                            }
+                        ],
+                    },
+                ]
+            ],
+        },
+        [
+            {
+                "dayNtlVlm": "1169046.29406",
+                "funding": "0.0000125",
+                "impactPxs": ["14.3047", "14.3444"],
+                "markPx": "14.3161",
+                "midPx": "14.314",
+                "openInterest": "688.11",
+                "oraclePx": "14.32",
+                "premium": "0.00031774",
+                "prevDayPx": "15.322",
+            }
+        ],
+    ]
+
+    class DummyApiClient:
+        def __init__(self, base_url: str) -> None:
+            self.base_url = base_url
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post_json(self, path: str, payload: dict[str, Any]):
+            captured_payload["value"] = payload
+            return sample_response
+
+    monkeypatch.setattr(
+        "src.hyperliquid_analytics.api.hyperliquid_client.ApiClient", DummyApiClient
+    )
+
+    client = HyperliquidClient()
+    result = await client.fetch_meta_and_asset_contexts()
+
+    assert captured_payload["value"] == {"type": "metaAndAssetCtxs"}
+    assert isinstance(result, MetaAndAssetCtxsResponse)
+
+    universe = result.meta.universe
+    assert len(universe) == 1
+    btc = universe[0]
+    assert btc.name == "BTC"
+    assert btc.sz_decimals == 5
+    assert btc.max_leverage == Decimal("50")
+
+    margin_tables = result.meta.margin_tables
+    assert len(margin_tables) == 1
+    assert margin_tables[0].identifier == 50
+    assert margin_tables[0].table.description == "standard"
+    assert margin_tables[0].table.margin_tiers[0].max_leverage == Decimal("50")
+
+    contexts = result.asset_contexts
+    assert len(contexts) == 1
+    btc_ctx = contexts[0]
+    assert btc_ctx.open_interest == Decimal("688.11")
+    assert btc_ctx.funding == Decimal("0.0000125")
+    assert btc_ctx.impact_prices == (
+        Decimal("14.3047"),
+        Decimal("14.3444"),
+    )
+    assert btc_ctx.mid_price == Decimal("14.314")
+    assert btc_ctx.mark_price == Decimal("14.3161")
+    assert btc_ctx.premium == Decimal("0.00031774")
+    assert btc_ctx.previous_day_price == Decimal("15.322")
+
+
+@pytest.mark.asyncio
+async def test_fetch_meta_and_asset_contexts_handles_null_fields(monkeypatch):
+    """Vérifie que les champs optionnels à None sont bien gérés."""
+
+    sample_response = [
+        {
+            "universe": [
+                {
+                    "name": "ARB",
+                    "szDecimals": 3,
+                    "maxLeverage": "20",
+                }
+            ],
+            "marginTables": [],
+        },
+        [
+            {
+                "dayNtlVlm": "1000.0",
+                "funding": "0",
+                "impactPxs": None,
+                "markPx": "1.12",
+                "midPx": None,
+                "openInterest": "12.5",
+                "oraclePx": "1.10",
+                "premium": None,
+                "prevDayPx": None,
+            }
+        ],
+    ]
+
+    class DummyApiClient:
+        def __init__(self, base_url: str) -> None:
+            self.base_url = base_url
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post_json(self, path: str, payload: dict[str, Any]):
+            return sample_response
+
+    monkeypatch.setattr(
+        "src.hyperliquid_analytics.api.hyperliquid_client.ApiClient", DummyApiClient
+    )
+
+    client = HyperliquidClient()
+    result = await client.fetch_meta_and_asset_contexts()
+
+    ctx = result.asset_contexts[0]
+    assert ctx.impact_prices is None
+    assert ctx.mid_price is None
+    assert ctx.premium is None
+    assert ctx.previous_day_price is None
