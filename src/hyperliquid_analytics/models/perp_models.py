@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import List, Tuple
+from typing import List 
 
 from pydantic import BaseModel, Field, model_validator, ConfigDict
 
@@ -40,7 +40,7 @@ class PerpMeta(BaseModel):
     margin_tables: List[MarginTableEntry] = Field(default_factory=list, alias="marginTables")
     model_config = ConfigDict(populate_by_name=True)
 
-
+    
 class PerpAssetContext(BaseModel):
     day_notional_volume: Decimal = Field(alias="dayNtlVlm")
     funding: Decimal
@@ -51,6 +51,7 @@ class PerpAssetContext(BaseModel):
     oracle_price: Decimal = Field(alias="oraclePx")
     premium: Decimal | None = Field(default=None)
     previous_day_price: Decimal | None = Field(default=None, alias="prevDayPx")
+    model_config = ConfigDict(populate_by_name=True)
 
 class MetaAndAssetCtxsResponse(BaseModel):
     meta: PerpMeta

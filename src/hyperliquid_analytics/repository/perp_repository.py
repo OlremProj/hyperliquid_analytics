@@ -12,14 +12,13 @@ from hyperliquid_analytics.models.perp_models import (
 DATA_DIR = Path("data")
 DB_PATH = DATA_DIR / "hyperliquid.duckdb"
 
-
+    
 class PerpRepository:
     def __init__(self, db_path: Path | None = None) -> None:
         db_file = db_path or DB_PATH
         DATA_DIR.mkdir(parents=True, exist_ok=True)
 
         self._conn = duckdb.connect(database=str(db_file), read_only=False)
-        self._conn.execute("PRAGMA busy_timeout=5000")
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -69,7 +68,7 @@ class PerpRepository:
         )
 
     def save_meta(self, meta: PerpMeta) -> None:
-        with self._conn:
+        try:
             self._conn.execute("DELETE FROM margin_tables;")
             self._conn.executemany(
                 """
@@ -106,6 +105,8 @@ class PerpRepository:
                     for idx, tier in enumerate(entry.table.margin_tiers)
                 ],
             )
+        except Exception:
+            raise
 
     def save_asset_contexts(
         self, contexts: Iterable[tuple[str, PerpAssetContext]], fetched_at: datetime

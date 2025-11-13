@@ -4,10 +4,10 @@ from datetime import datetime, timezone
 
 import logging
 
-from src.hyperliquid_analytics.models.perp_models import MarginTableEntry, PerpMeta, PerpUniverseAsset, PerpAssetContext, MetaAndAssetCtxsResponse
-from src.hyperliquid_analytics.config import Settings
-from src.hyperliquid_analytics.api.client_api import ApiClient
-from src.hyperliquid_analytics.models.data_models import OHLCVData, TimeFrame, MarketData
+from hyperliquid_analytics.models.perp_models import MarginTableEntry, PerpMeta, PerpUniverseAsset, PerpAssetContext, MetaAndAssetCtxsResponse
+from hyperliquid_analytics.config import Settings
+from hyperliquid_analytics.api.client_api import ApiClient
+from hyperliquid_analytics.models.data_models import OHLCVData, TimeFrame, MarketData
 
 class HyperliquidAPIError(RuntimeError):
     def __init__(self, status: int, message: str):
@@ -73,7 +73,7 @@ class HyperliquidClient:
             }
         return await self._request(payload)
 
-    async def fetch_meta_and_asset_contexts(self):
+    async def fetch_meta_and_asset_contexts(self) -> MetaAndAssetCtxsResponse:
         payload={
                 "type": "metaAndAssetCtxs",
                 }

@@ -15,7 +15,7 @@ class ApiClient:
         self._session: aiohttp.ClientSession = aiohttp.ClientSession(base_url = self._base_url, timeout = self._timeout)
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
+    async def __aexit__(self, exc_type, exc, tb):   
         if self._session and not self._session.closed:
             await self._session.close()
     

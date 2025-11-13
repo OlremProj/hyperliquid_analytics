@@ -16,3 +16,4 @@ hyperliquid-python-sdk
 requests
 aiohttp
 duckdb
+click==8.3.0
