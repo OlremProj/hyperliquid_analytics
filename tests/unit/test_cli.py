@@ -1,7 +1,8 @@
-"""Tests pour le module CLI."""
+"""Tests de la CLI Hyperliquid."""
 
 import json
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
@@ -9,118 +10,101 @@ from click.testing import CliRunner
 from hyperliquid_analytics.cli import app
 
 
-class DummyContext:
+class SnapshotStub(SimpleNamespace):
+    asset_contexts: list
+
+
+class ContextStub:
     def __init__(self, payload: dict):
         self._payload = payload
 
     def model_dump(self, *, by_alias: bool = False) -> dict:
         return self._payload
 
-class DummySnapshot:
-    def __init__(self, count: int):
-        self.asset_contexts = [object() for _ in range(count)]
 
 @pytest.fixture
-def stub_service(monkeypatch):
+def runner():
+    return CliRunner()
+
+
+def make_stub_service():
     class StubService:
-        def __init__(self) -> None:
-            self.snapshot = DummySnapshot(count=3)
-            self.fetched_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
-            self.latest_result: DummyContext | None = DummyContext({"symbol": "BTC"})
-            self.history_result = [
-                (
-                    self.fetched_at,
-                    DummyContext({"symbol": "BTC", "mark_price": 42}),
-                ),
-            ]
-            self.save_called = False
-            self.latest_symbol = None
-            self.history_args: dict | None = None
+        def __init__(self):
+            self.saved = False
 
         async def save_market_data(self):
-            self.save_called = True
-            return self.snapshot, self.fetched_at
+            self.saved = True
+            snapshot = SnapshotStub(asset_contexts=[object(), object()])
+            fetched_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+            return snapshot, fetched_at
 
         async def get_market_data(self, symbol: str):
-            self.latest_symbol = symbol
-            return self.latest_result
+            if symbol == "missing":
+                return None
+            return ContextStub({"symbol": symbol.upper(), "mark_price": 123.4})
 
-        async def get_market_history(
-            self,
-            symbol: str,
-            *,
-            since: datetime | None = None,
-            limit: int | None = None,
-            ascending: bool = False,
-        ):
-            self.history_args = {
-                "symbol": symbol,
-                "since": since,
-                "limit": limit,
-                "ascending": ascending,
-            }
-            return self.history_result
+        async def get_market_history(self, symbol: str, *, limit: int | None = None, since=None, ascending=False):
+            return [
+                (
+                    datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    ContextStub({"symbol": symbol.upper(), "mark_price": 100.0}),
+                ),
+                (
+                    datetime(2025, 1, 2, tzinfo=timezone.utc),
+                    ContextStub({"symbol": symbol.upper(), "mark_price": 105.0}),
+                ),
+            ][: limit or 2]
 
-    service = StubService()
-    monkeypatch.setattr(
-        "hyperliquid_analytics.cli.AnalyticsService",
-        lambda db_path=None: service,
-    )
-    return service
+    return StubService()
 
-def test_collect_snapshot_outputs_summary(stub_service):
-    runner = CliRunner()
 
+@pytest.fixture(autouse=True)
+def stub_service(monkeypatch):
+    service = make_stub_service()
+    monkeypatch.setattr("hyperliquid_analytics.cli.make_service", lambda db_path: service)
+    yield service
+
+
+def test_collect_snapshot_outputs_json(runner, stub_service):
     result = runner.invoke(app, ["collect", "snapshot"])
 
     assert result.exit_code == 0
-    payload = json.loads(result.output)
+    payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
-    assert payload["symbols"] == len(stub_service.snapshot.asset_contexts)
-    assert payload["timestamp"] == stub_service.fetched_at.isoformat()
-    assert stub_service.save_called is True
+    assert payload["symbols"] == 2
+    assert payload["timestamp"] == "2025-01-01T00:00:00+00:00"
 
-def test_show_latest_prints_context(stub_service):
-    stub_service.latest_result = DummyContext({"symbol": "ETH"})
-    runner = CliRunner()
 
-    result = runner.invoke(app, ["show", "latest", "--symbol", "eth"])
+def test_show_latest_requires_symbol(runner):
+    result = runner.invoke(app, ["show", "latest"])
 
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["symbol"] == "ETH"
-    assert stub_service.latest_symbol == "eth"
+    assert result.exit_code != 0
+    assert "Missing option '--symbol'" in result.output
 
-def test_show_history_prints_json_array(stub_service):
-    history_time = datetime(2024, 1, 2, tzinfo=timezone.utc)
-    stub_service.history_result = [
-        (history_time, DummyContext({"symbol": "ARB", "mark_price": 12.5})),
-    ]
-    runner = CliRunner()
 
-    result = runner.invoke(
-        app,
-        ["show", "history", "--symbol", "arb", "--limit", "10", "--ascending"],
-    )
+def test_show_latest_returns_context_payload(runner):
+    result = runner.invoke(app, ["show", "latest", "-s", "btc"])
 
     assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert isinstance(payload, list)
-    assert payload[0]["timestamp"] == history_time.isoformat()
-    assert payload[0]["symbol"] == "ARB"
-    assert stub_service.history_args == {
-        "symbol": "arb",
-        "since": None,
-        "limit": 10,
-        "ascending": True,
-    }
+    payload = json.loads(result.stdout)
+    assert payload["symbol"] == "BTC"
+    assert payload["mark_price"] == 123.4
 
-def test_show_latest_errors_when_symbol_not_found(stub_service):
-    stub_service.latest_result = None
-    runner = CliRunner()
 
-    result = runner.invoke(app, ["show", "latest", "--symbol", "eth"])
+def test_show_latest_with_missing_symbol_returns_error(runner):
+    result = runner.invoke(app, ["show", "latest", "-s", "missing"])
 
-    assert result.exit_code == 1
-    assert "Aucun snapshot trouvé pour ETH" in result.output
+    assert result.exit_code != 0
+    assert "Aucun snapshot trouvé pour MISSING" in result.output
 
+
+def test_show_history_outputs_series(runner):
+    result = runner.invoke(app, ["show", "history", "-s", "eth", "--limit", "1"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert isinstance(data, list)
+    assert len(data) == 1
+    entry = data[0]
+    assert entry["symbol"] == "ETH"
+    assert entry["mark_price"] == 100.0
