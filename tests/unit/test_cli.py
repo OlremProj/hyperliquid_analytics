@@ -16,11 +16,9 @@ class DummyContext:
     def model_dump(self, *, by_alias: bool = False) -> dict:
         return self._payload
 
-
 class DummySnapshot:
     def __init__(self, count: int):
         self.asset_contexts = [object() for _ in range(count)]
-
 
 @pytest.fixture
 def stub_service(monkeypatch):
@@ -70,7 +68,6 @@ def stub_service(monkeypatch):
     )
     return service
 
-
 def test_collect_snapshot_outputs_summary(stub_service):
     runner = CliRunner()
 
@@ -83,7 +80,6 @@ def test_collect_snapshot_outputs_summary(stub_service):
     assert payload["timestamp"] == stub_service.fetched_at.isoformat()
     assert stub_service.save_called is True
 
-
 def test_show_latest_prints_context(stub_service):
     stub_service.latest_result = DummyContext({"symbol": "ETH"})
     runner = CliRunner()
@@ -94,7 +90,6 @@ def test_show_latest_prints_context(stub_service):
     payload = json.loads(result.output)
     assert payload["symbol"] == "ETH"
     assert stub_service.latest_symbol == "eth"
-
 
 def test_show_history_prints_json_array(stub_service):
     history_time = datetime(2024, 1, 2, tzinfo=timezone.utc)
@@ -119,7 +114,6 @@ def test_show_history_prints_json_array(stub_service):
         "limit": 10,
         "ascending": True,
     }
-
 
 def test_show_latest_errors_when_symbol_not_found(stub_service):
     stub_service.latest_result = None
