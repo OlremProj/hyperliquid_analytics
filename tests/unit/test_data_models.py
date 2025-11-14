@@ -3,7 +3,7 @@
 from datetime import datetime
 import pytest
 from pydantic import ValidationError
-from src.hyperliquid_analytics.models.data_models import (
+from hyperliquid_analytics.models.data_models import (
     TimeFrame,
     OHLCVData,
     MarketData,

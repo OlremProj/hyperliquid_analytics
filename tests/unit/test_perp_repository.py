@@ -181,6 +181,47 @@ def test_fetch_latest_returns_latest_context():
         fetch_repo.close()
 
 
+def test_fetch_history_supports_filters_and_ordering():
+    with TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "perp.duckdb"
+        repo = PerpRepository(db_path=db_path)
+
+        base_time = datetime.now(timezone.utc)
+        repo.save_asset_contexts(
+            [
+                ("BTC", build_context(Decimal("10"))),
+            ],
+            base_time - timedelta(minutes=3),
+        )
+        repo.save_asset_contexts(
+            [
+                ("BTC", build_context(Decimal("20"))),
+            ],
+            base_time - timedelta(minutes=2),
+        )
+        repo.save_asset_contexts(
+            [
+                ("BTC", build_context(Decimal("30"))),
+            ],
+            base_time - timedelta(minutes=1),
+        )
+
+        history = repo.fetch_history("btc", limit=2)
+        assert [ctx.day_notional_volume for _, ctx in history] == [
+            Decimal("30"),
+            Decimal("20"),
+        ]
+
+        since_time = base_time - timedelta(minutes=2, seconds=30)
+        asc_history = repo.fetch_history("btc", since=since_time, ascending=True)
+        assert [ctx.day_notional_volume for _, ctx in asc_history] == [
+            Decimal("20"),
+            Decimal("30"),
+        ]
+
+        repo.close()
+
+
 def test_close_closes_connection():
     with TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "perp.duckdb"

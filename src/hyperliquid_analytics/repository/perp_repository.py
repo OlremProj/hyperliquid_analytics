@@ -209,7 +209,8 @@ class PerpRepository:
         rows = self._conn.execute(query, params).fetchall()
         history: list[tuple[datetime, PerpAssetContext]] = []
         for row in rows:
-            context = self.mapping_prep_asset_context(row)
+            fetched_at_dt = row[0]
+            context = self.mapping_prep_asset_context(row[1:])
             history.append((fetched_at_dt, context))
         return history
 

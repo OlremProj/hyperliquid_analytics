@@ -1,12 +1,13 @@
 from datetime import datetime, timezone
 import asyncio
+from pathlib import Path
 from hyperliquid_analytics.api.hyperliquid_client import HyperliquidClient 
 from hyperliquid_analytics.repository.perp_repository import PerpRepository 
 
 class AnalyticsService:
 
-    def __init__(self) -> None:
-        self.perp_repository = PerpRepository()
+    def __init__(self, db_path: Path | None = None) -> None:
+        self.perp_repository = PerpRepository(db_path=db_path)
         self.hl_client = HyperliquidClient()
 
     async def save_market_data(self):
