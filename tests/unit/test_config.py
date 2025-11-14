@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-import src.hyperliquid_analytics.config as config_module
+import hyperliquid_analytics.config as config_module
 
 
 @pytest.fixture(autouse=True)
@@ -23,10 +23,8 @@ def test_settings_load_from_env(monkeypatch):
     monkeypatch.setenv("HYPERLIQUID_ANALYTICS_ENABLE_AUTO_TRADING", "false")
 
     settings = config_module.Settings()
-    print("symbols : ")
-    print(settings)
     assert settings.api_key == "secret-key"
-    assert str(settings.base_url) == "https://api.hyperliquid.xyz/"
+    assert str(settings.base_url) == "https://api.hyperliquid.xyz"
     assert settings.symbols == ["BTC", "ETH"]
     assert settings.log_level == "DEBUG"
     assert settings.enable_auto_trading is False

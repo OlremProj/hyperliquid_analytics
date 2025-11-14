@@ -6,12 +6,12 @@ from typing import Any
 
 import pytest
 
-from src.hyperliquid_analytics.api.hyperliquid_client import (
+from hyperliquid_analytics.api.hyperliquid_client import (
     HyperliquidAPIError,
     HyperliquidClient,
 )
-from src.hyperliquid_analytics.models.data_models import TimeFrame
-from src.hyperliquid_analytics.models.perp_models import MetaAndAssetCtxsResponse
+from hyperliquid_analytics.models.data_models import TimeFrame
+from hyperliquid_analytics.models.perp_models import MetaAndAssetCtxsResponse
 
 
 @pytest.fixture(autouse=True)
@@ -23,7 +23,7 @@ def stub_settings(monkeypatch):
             self.base_url = "https://example.com"
 
     monkeypatch.setattr(
-        "src.hyperliquid_analytics.api.hyperliquid_client.Settings", DummySettings
+        "hyperliquid_analytics.api.hyperliquid_client.Settings", DummySettings
     )
 
 
@@ -58,7 +58,7 @@ async def test_fetch_ohlcv_success(monkeypatch):
             return sample_response
 
     monkeypatch.setattr(
-        "src.hyperliquid_analytics.api.hyperliquid_client.ApiClient", DummyApiClient
+        "hyperliquid_analytics.api.hyperliquid_client.ApiClient", DummyApiClient
     )
 
     client = HyperliquidClient()
@@ -105,7 +105,7 @@ async def test_fetch_ohlcv_raises_hyperliquid_error(monkeypatch):
             raise HyperliquidAPIError(422, "Failed to deserialize")
 
     monkeypatch.setattr(
-        "src.hyperliquid_analytics.api.hyperliquid_client.ApiClient", FailingApiClient
+        "hyperliquid_analytics.api.hyperliquid_client.ApiClient", FailingApiClient
     )
 
     client = HyperliquidClient()
@@ -180,7 +180,7 @@ async def test_fetch_meta_and_asset_contexts_success(monkeypatch):
             return sample_response
 
     monkeypatch.setattr(
-        "src.hyperliquid_analytics.api.hyperliquid_client.ApiClient", DummyApiClient
+        "hyperliquid_analytics.api.hyperliquid_client.ApiClient", DummyApiClient
     )
 
     client = HyperliquidClient()
@@ -261,7 +261,7 @@ async def test_fetch_meta_and_asset_contexts_handles_null_fields(monkeypatch):
             return sample_response
 
     monkeypatch.setattr(
-        "src.hyperliquid_analytics.api.hyperliquid_client.ApiClient", DummyApiClient
+        "hyperliquid_analytics.api.hyperliquid_client.ApiClient", DummyApiClient
     )
 
     client = HyperliquidClient()

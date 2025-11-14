@@ -1,7 +1,8 @@
 import duckdb
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from hyperliquid_analytics.models.perp_models import (
     MetaAndAssetCtxsResponse,
@@ -68,6 +69,7 @@ class PerpRepository:
         )
 
     def save_meta(self, meta: PerpMeta) -> None:
+        self._conn.execute("BEGIN")
         try:
             self._conn.execute("DELETE FROM margin_tables;")
             self._conn.executemany(
@@ -105,7 +107,9 @@ class PerpRepository:
                     for idx, tier in enumerate(entry.table.margin_tiers)
                 ],
             )
+            self._conn.execute("COMMIT")
         except Exception:
+            self._conn.execute("ROLLBACK")
             raise
 
     def save_asset_contexts(
@@ -134,7 +138,8 @@ class PerpRepository:
         if not rows:
             return
 
-        with self._conn:
+        self._conn.execute("BEGIN")
+        try:
             self._conn.executemany(
                 """
                 INSERT OR REPLACE INTO perp_asset_ctxs
@@ -144,12 +149,16 @@ class PerpRepository:
                 """,
                 rows,
             )
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
 
     def save_snapshot(self, snapshot: MetaAndAssetCtxsResponse, fetched_at: datetime) -> None:
         self.save_meta(snapshot.meta)
         self.save_asset_contexts(
             ((asset.name, ctx) for asset, ctx in zip(snapshot.meta.universe, snapshot.asset_contexts)),
-            fetched_at=fetched_at,
+            fetched_at=fetched_at or datetime.now(timezone.utc),
         )
 
     def fetch_latest(self, symbol: str) -> PerpAssetContext | None:
@@ -168,6 +177,43 @@ class PerpRepository:
         if row is None:
             return None
 
+        return self.mapping_prep_asset_context(row)
+
+
+    def fetch_history(
+        self,
+        symbol: str,
+        *,
+        since: datetime | None = None,
+        limit: int | None = None,
+        ascending: bool = False,
+    ) -> list[tuple[datetime, PerpAssetContext]]:
+        clauses = ["symbol = ?"]
+        params: list[Any] = [symbol.upper()]
+        if since is not None:
+            clauses.append("fetched_at >= ?")
+            params.append(since)
+        order = "ASC" if ascending else "DESC"
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = "LIMIT ?"
+            params.append(limit)
+        query = f"""
+            SELECT fetched_at, day_ntl_vlm, funding, mark_px, mid_px, open_interest, oracle_px,
+                   premium, prev_day_px, impact_bid, impact_ask
+            FROM perp_asset_ctxs
+            WHERE {' AND '.join(clauses)}
+            ORDER BY fetched_at {order}
+            {limit_clause}
+        """
+        rows = self._conn.execute(query, params).fetchall()
+        history: list[tuple[datetime, PerpAssetContext]] = []
+        for row in rows:
+            context = self.mapping_prep_asset_context(row)
+            history.append((fetched_at_dt, context))
+        return history
+
+    def mapping_prep_asset_context(self, row):
         day_ntl_vlm, funding, mark_px, mid_px, open_interest, oracle_px, premium, prev_day_px, impact_bid, impact_ask = row
         return PerpAssetContext(
             day_notional_volume=day_ntl_vlm,
@@ -180,6 +226,7 @@ class PerpRepository:
             previous_day_price=prev_day_px,
             impact_prices=(impact_bid, impact_ask) if impact_bid is not None and impact_ask is not None else None,
         )
+
 
     def close(self) -> None:
         self._conn.close()

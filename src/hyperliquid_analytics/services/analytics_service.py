@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timezone
+import asyncio
 from hyperliquid_analytics.api.hyperliquid_client import HyperliquidClient 
 from hyperliquid_analytics.repository.perp_repository import PerpRepository 
 
@@ -10,8 +11,22 @@ class AnalyticsService:
 
     async def save_market_data(self):
         meta_assets = await self.hl_client.fetch_meta_and_asset_contexts()
-        self.perp_repository.save_snapshot(meta_assets, datetime.now())
-        return meta_assets
+        fetched_at = datetime.now(timezone.utc)
+        await asyncio.to_thread(
+                self.perp_repository.save_snapshot,
+                meta_assets,
+                fetched_at,
+        )
+        return meta_assets, fetched_at
 
     async def get_market_data(self, symbol: str):
-        return self.perp_repository.fetch_latest(symbol)
+        return await asyncio.to_thread(self.perp_repository.fetch_latest, symbol)
+
+    async def get_market_history(self, symbol: str, *, since: datetime | None = None, limit: int | None = None, ascending: bool = False):
+        return await asyncio.to_thread(
+            self.perp_repository.fetch_history,
+            symbol,
+            since=since,
+            limit=limit,
+            ascending=ascending,
+        )
