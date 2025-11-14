@@ -35,7 +35,6 @@ class IndicatorService:
                     window,
                     limit,
                 )
-            # … autres indicateurs plus tard
             case _:
                 raise NotImplementedError(f"{indicator.value} not implemented yet")
 
@@ -45,8 +44,7 @@ class IndicatorService:
             params={"window": window, "limit": limit},
             series=series,
             )
-   # async def compute_batch():
-    #    print("batch")
+
 
     def _compute_sma(
             self, 
