@@ -6,9 +6,11 @@ Agent d’analyse technique en cours de construction autour des données Hyperli
 
 - **Client Hyperliquid (async)** : appels `/info` (`candleSnapshot`, `metaAndAssetCtxs`, `userFills`) gérés, avec journalisation et validations Pydantic (`PerpMeta`, `PerpAssetContext`, `MetaAndAssetCtxsResponse`, `MarketData`…).
 - **Repository DuckDB** : schéma persistant pour `perp_universe`, `margin_tables`, `perp_asset_ctxs`, transactions explicites, accès `fetch_latest` & `fetch_history`, timestamp UTC automatique.
-- **Service d’ingestion** : `AnalyticsService` orchestre le client et le repository (insertion `asyncio.to_thread`), renvoie un snapshot + horodatage, expose les lectures `get_market_data/history`.
-- **CLI Click** : commandes `collect snapshot`, `show latest`, `show history` avec option globale `--db-path`, sortie JSON.
-- **Tests unitaires** : couverture des modèles, client, service (asynchrone), repository (à compléter) ; suite Pytest paramétrée.
+- **Services** :
+  - `AnalyticsService` orchestre le client Hyperliquid et le repository (ingestion async via `to_thread`, lectures latest/history).
+  - `IndicatorService` calcule des indicateurs (SMA pour l’instant) directement en SQL via DuckDB.
+- **CLI Click** : commandes `collect snapshot`, `show latest`, `show history`, `show indicator` avec option globale `--db-path`, sorties JSON prêtes pour piping.
+- **Tests unitaires** : couverture des modèles, client, services (ingestion & indicateurs), repository, CLI ; suite Pytest paramétrée.
 
 ## Installation
 
@@ -43,6 +45,9 @@ python -m hyperliquid_analytics.cli show latest -s BTC
 # Historique récent (20 entrées par défaut)
 python -m hyperliquid_analytics.cli show history -s BTC --limit 5
 
+# Calculer un indicateur (ex : SMA 20 périodes)
+python -m hyperliquid_analytics.cli show indicator sma -s BTC --window 20
+
 # Spécifier un autre fichier DuckDB
 python -m hyperliquid_analytics.cli --db-path data/dev.duckdb collect snapshot
 ```
@@ -60,7 +65,7 @@ Astuce : exécuter `pip install -e .[dev]` avant les tests pour s’assurer que 
 - **🐣 Phase 1 — Hyperliquid seulement (en cours)**
   - [x] Client async & modèles Pydantic
   - [x] Service + CLI de collecte/lecture
-  - [ ] Tests unitaires Repository / CLI / Scheduler
+  - [x] Tests unitaires Repository / CLI / Scheduler
   - [ ] Calculs d’indicateurs de base (SMA/EMA, RSI, MACD, Bollinger, VWAP) via DuckDB
   - [ ] Scheduler d’ingestion périodique
 

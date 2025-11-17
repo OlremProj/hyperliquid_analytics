@@ -8,6 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from hyperliquid_analytics.cli import app
+from hyperliquid_analytics.services.indicator_service import IndicatorResult, IndicatorType
 
 
 class SnapshotStub(SimpleNamespace):
@@ -31,6 +32,7 @@ def make_stub_service():
     class StubService:
         def __init__(self):
             self.saved = False
+            self.perp_repository = SimpleNamespace()
 
         async def save_market_data(self):
             self.saved = True
@@ -62,6 +64,24 @@ def make_stub_service():
 def stub_service(monkeypatch):
     service = make_stub_service()
     monkeypatch.setattr("hyperliquid_analytics.cli.make_service", lambda db_path: service)
+
+    class StubIndicatorService:
+        async def compute_indicator(self, symbol: str, indicator: IndicatorType, *, window: int | None = None, limit: int | None = None):
+            return IndicatorResult(
+                symbol=symbol.upper(),
+                indicator=indicator,
+                params={"window": window, "limit": limit},
+                series=[
+                    (datetime(2025, 1, 1, tzinfo=timezone.utc), 100.0),
+                    (datetime(2025, 1, 2, tzinfo=timezone.utc), 105.0),
+                ],
+            )
+
+    monkeypatch.setattr(
+        "hyperliquid_analytics.cli.IndicatorService",
+        lambda analytics_service: StubIndicatorService(),
+    )
+
     yield service
 
 

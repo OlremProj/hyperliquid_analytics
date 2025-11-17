@@ -12,7 +12,6 @@ from hyperliquid_analytics.models.perp_models import (
 
 DATA_DIR = Path("data")
 DB_PATH = DATA_DIR / "hyperliquid.duckdb"
-
     
 class PerpRepository:
     def __init__(self, db_path: Path | None = None) -> None:
@@ -227,7 +226,6 @@ class PerpRepository:
             previous_day_price=prev_day_px,
             impact_prices=(impact_bid, impact_ask) if impact_bid is not None and impact_ask is not None else None,
         )
-
 
     def close(self) -> None:
         self._conn.close()
