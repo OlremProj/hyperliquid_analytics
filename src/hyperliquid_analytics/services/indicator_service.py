@@ -47,6 +47,18 @@ class IndicatorService:
                     window,
                     limit,
                 )
+            case IndicatorType.MACD:
+                slow = window
+                fast = 12
+                signal = 9
+                series = await asyncio.to_thread(
+                    self._compute_macd_db,
+                    symbol,
+                    fast,
+                    slow,
+                    signal,
+                    limit,
+                )
             case _:
                 raise NotImplementedError(f"{indicator.value} not implemented yet")
 
@@ -56,6 +68,138 @@ class IndicatorService:
             params={"window": window, "limit": limit},
             series=series,
        )
+    
+    def _compute_macd_db(
+        self,
+        symbol: str,
+        fast: int = 12,
+        slow: int = 26,
+        signal: int = 9,
+        limit: int | None = None,
+    ) -> list[tuple[datetime, float | None]]:
+        alpha_fast = 2 / (fast + 1)
+        beta_fast = 1 - alpha_fast
+        alpha_slow = 2 / (slow + 1)
+        beta_slow = 1 - alpha_slow
+
+        params = [
+            symbol.upper(),           # pour ordered
+            alpha_fast, beta_fast,    # EMAs rapides
+            alpha_slow, beta_slow,    # EMAs lentes
+        ]
+        if limit is not None:
+            params.append(limit)
+
+        query = f"""
+            WITH RECURSIVE
+                ordered AS (
+                    SELECT
+                        fetched_at,
+                        mark_px,
+                        ROW_NUMBER() OVER (ORDER BY fetched_at) AS row_num
+                    FROM perp_asset_ctxs
+                    WHERE symbol = ?
+                ),
+                fast_seed AS (
+                    SELECT
+                        row_num,
+                        fetched_at,
+                        AVG(mark_px) OVER (
+                            ORDER BY row_num
+                            ROWS BETWEEN {fast - 1} PRECEDING AND CURRENT ROW
+                        ) AS ema
+                    FROM ordered
+                    WHERE row_num = {fast}
+                ),
+                fast_ema AS (
+                    SELECT row_num, fetched_at, ema
+                    FROM fast_seed
+                    UNION ALL
+                    SELECT
+                        o.row_num,
+                        o.fetched_at,
+                        (? * o.mark_px) + (? * fast_ema.ema) AS ema
+                    FROM ordered o
+                    JOIN fast_ema ON o.row_num = fast_ema.row_num + 1
+                ),
+                slow_seed AS (
+                    SELECT
+                        row_num,
+                        fetched_at,
+                        AVG(mark_px) OVER (
+                            ORDER BY row_num
+                            ROWS BETWEEN {slow - 1} PRECEDING AND CURRENT ROW
+                        ) AS ema
+                    FROM ordered
+                    WHERE row_num = {slow}
+                ),
+                slow_ema AS (
+                    SELECT row_num, fetched_at, ema
+                    FROM slow_seed
+                    UNION ALL
+                    SELECT
+                        o.row_num,
+                        o.fetched_at,
+                        (? * o.mark_px) + (? * slow_ema.ema) AS ema
+                    FROM ordered o
+                    JOIN slow_ema ON o.row_num = slow_ema.row_num + 1
+                ),
+                macd_base AS (
+                    SELECT
+                        f.fetched_at,
+                        f.ema AS ema_fast,
+                        s.ema AS ema_slow,
+                        f.ema - s.ema AS macd,
+                        ROW_NUMBER() OVER (ORDER BY f.fetched_at) AS macd_row
+                    FROM fast_ema f
+                    JOIN slow_ema s
+                      ON f.fetched_at = s.fetched_at
+                ),
+                signal_seed AS (
+                    SELECT
+                        macd_row,
+                        fetched_at,
+                        AVG(macd) OVER (
+                            ORDER BY macd_row
+                            ROWS BETWEEN {signal - 1} PRECEDING AND CURRENT ROW
+                        ) AS signal
+                    FROM macd_base
+                    WHERE macd_row = {signal}
+                ),
+                signal_ema AS (
+                    SELECT macd_row, fetched_at, signal
+                    FROM signal_seed
+                    UNION ALL
+                    SELECT
+                        m.macd_row,
+                        m.fetched_at,
+                        (signal_ema.signal * {signal - 1} + m.macd) / {signal} AS signal
+                    FROM macd_base m
+                    JOIN signal_ema ON m.macd_row = signal_ema.macd_row + 1
+                )
+                SELECT
+                    m.fetched_at,
+                    m.macd,
+                    s.signal,
+                    m.macd - s.signal AS histogram
+                FROM macd_base m
+                JOIN signal_ema s ON m.macd_row = s.macd_row
+                ORDER BY m.fetched_at ASC
+                { "LIMIT ?" if limit is not None else "" }
+                """ 
+        rows = self._repo._conn.execute(query, params).fetchall()
+        return [
+                (
+                    ts,
+                    {
+                        "macd": float(macd),
+                        "signal": float(sig),
+                        "hist": float(macd - sig) if hist is None else float(hist),
+                    },
+                )
+                for ts, macd, sig, hist in rows
+        ]
+        
     
     def _compute_rsi_db(
         self,
