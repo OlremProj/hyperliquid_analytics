@@ -66,23 +66,48 @@ def stub_service(monkeypatch):
     monkeypatch.setattr("hyperliquid_analytics.cli.make_service", lambda db_path: service)
 
     class StubIndicatorService:
-        async def compute_indicator(self, symbol: str, indicator: IndicatorType, *, window: int | None = None, limit: int | None = None):
+        def __init__(self):
+            self.calls: list[dict] = []
+
+        async def compute_indicator(
+            self,
+            symbol: str,
+            indicator: IndicatorType,
+            *,
+            window: int | None = None,
+            limit: int | None = None,
+        ):
+            self.calls.append(
+                {
+                    "symbol": symbol,
+                    "indicator": indicator,
+                    "window": window,
+                    "limit": limit,
+                }
+            )
             return IndicatorResult(
                 symbol=symbol.upper(),
                 indicator=indicator,
                 params={"window": window, "limit": limit},
                 series=[
                     (datetime(2025, 1, 1, tzinfo=timezone.utc), 100.0),
-                    (datetime(2025, 1, 2, tzinfo=timezone.utc), 105.0),
+                    (datetime(2025, 1, 2, tzinfo=timezone.utc), {"macd": 1.0, "signal": 0.5, "hist": 0.5}),
                 ],
             )
 
+    indicator_stub = StubIndicatorService()
+    service._indicator_stub = indicator_stub
     monkeypatch.setattr(
         "hyperliquid_analytics.cli.IndicatorService",
-        lambda analytics_service: StubIndicatorService(),
+        lambda analytics_service: indicator_stub,
     )
 
     yield service
+
+
+@pytest.fixture
+def indicator_stub(stub_service):
+    return stub_service._indicator_stub
 
 
 def test_collect_snapshot_outputs_json(runner, stub_service):
@@ -128,3 +153,52 @@ def test_show_history_outputs_series(runner):
     entry = data[0]
     assert entry["symbol"] == "ETH"
     assert entry["mark_price"] == 100.0
+
+
+def test_show_indicator_serializes_series_and_passes_args(runner, indicator_stub):
+    result = runner.invoke(
+        app,
+        [
+            "show",
+            "indicator",
+            "EMA",
+            "-s",
+            "btc",
+            "--window",
+            "10",
+            "--limit",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["symbol"] == "BTC"
+    assert payload["indicator"] == IndicatorType.EMA.value
+    assert payload["params"] == {"window": 10, "limit": 2}
+    assert payload["series"][0]["timestamp"] == "2025-01-01T00:00:00+00:00"
+    assert payload["series"][0]["value"] == 100.0
+    second = payload["series"][1]
+    assert second["timestamp"] == "2025-01-02T00:00:00+00:00"
+    assert second["macd"] == 1.0
+    assert "value" not in second
+
+    call = indicator_stub.calls[-1]
+    assert call["symbol"] == "btc"
+    assert call["indicator"] is IndicatorType.EMA
+    assert call["window"] == 10
+    assert call["limit"] == 2
+
+
+def test_show_indicator_unknown_indicator_returns_error(runner):
+    result = runner.invoke(app, ["show", "indicator", "unknown", "-s", "btc"])
+
+    assert result.exit_code != 0
+    assert "Indicateur inconnu 'unknown'" in result.output
+
+
+def test_show_indicator_requires_symbol_option(runner):
+    result = runner.invoke(app, ["show", "indicator", "sma"])
+
+    assert result.exit_code != 0
+    assert "Missing option '--symbol'" in result.output

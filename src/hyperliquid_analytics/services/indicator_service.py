@@ -59,6 +59,15 @@ class IndicatorService:
                     signal,
                     limit,
                 )
+            case IndicatorType.BOLLINGER:
+                k = 2.0
+                series = await asyncio.to_thread(
+                    self._compute_bollinger_db,
+                    symbol,
+                    window,
+                    k,
+                    limit,
+                )
             case _:
                 raise NotImplementedError(f"{indicator.value} not implemented yet")
 
@@ -68,7 +77,64 @@ class IndicatorService:
             params={"window": window, "limit": limit},
             series=series,
        )
-    
+
+    def _compute_bollinger_db(
+        self,
+        symbol: str,
+        window: int = 20,
+        k: float = 2.0,
+        limit: int | None = None,
+    ) -> list[tuple[datetime, float | None]]:
+        params = [symbol.upper()]
+
+        if limit is not None:
+            params.append(limit)
+
+        query = f"""
+            WITH ordered AS (
+                SELECT
+                    fetched_at,
+                    mark_px,
+                    ROW_NUMBER() OVER (ORDER BY fetched_at) AS row_num
+                FROM perp_asset_ctxs
+                WHERE symbol = ?
+            ),
+            bands AS (
+                SELECT
+                    fetched_at,
+                    AVG(mark_px) OVER (
+                        ORDER BY row_num
+                        ROWS BETWEEN {window - 1} PRECEDING AND CURRENT ROW
+                    ) as sma,
+                    STDDEV_POP(mark_px) OVER (
+                        ORDER BY row_num
+                        ROWS BETWEEN {window - 1} PRECEDING AND CURRENT ROW
+                    ) as stddev,
+                    row_num
+                FROM ordered
+            )
+            SELECT
+                fetched_at,
+                CASE WHEN row_num >= {window} THEN sma ELSE NULL END AS middle,
+                CASE WHEN row_num >= {window} THEN sma + {k} * stddev ELSE NULL END AS upper,
+                CASE WHEN row_num >= {window} THEN sma - {k} * stddev ELSE NULL END AS lower
+            FROM bands
+            ORDER BY fetched_at ASC
+            { "LIMIT ?" if limit is not None else "" }
+        """
+        rows = self._repo._conn.execute(query, params).fetchall()
+        return [
+                (
+                    ts,
+                    {
+                        "middle": None if middle is None else float(middle),
+                        "upper": None if upper is None else float(upper),
+                        "lower": None if lower is None else float(lower),
+                    },
+                )
+                for ts, middle, upper, lower in rows
+        ]
+
     def _compute_macd_db(
         self,
         symbol: str,
@@ -101,14 +167,17 @@ class IndicatorService:
                     WHERE symbol = ?
                 ),
                 fast_seed AS (
-                    SELECT
-                        row_num,
-                        fetched_at,
-                        AVG(mark_px) OVER (
-                            ORDER BY row_num
-                            ROWS BETWEEN {fast - 1} PRECEDING AND CURRENT ROW
-                        ) AS ema
-                    FROM ordered
+                    SELECT row_num, fetched_at, ema
+                    FROM (
+                        SELECT
+                            row_num,
+                            fetched_at,
+                            AVG(mark_px) OVER (
+                                ORDER BY row_num
+                                ROWS BETWEEN {fast - 1} PRECEDING AND CURRENT ROW
+                            ) AS ema
+                        FROM ordered
+                    )
                     WHERE row_num = {fast}
                 ),
                 fast_ema AS (
@@ -123,14 +192,17 @@ class IndicatorService:
                     JOIN fast_ema ON o.row_num = fast_ema.row_num + 1
                 ),
                 slow_seed AS (
-                    SELECT
-                        row_num,
-                        fetched_at,
-                        AVG(mark_px) OVER (
-                            ORDER BY row_num
-                            ROWS BETWEEN {slow - 1} PRECEDING AND CURRENT ROW
-                        ) AS ema
-                    FROM ordered
+                    SELECT row_num, fetched_at, ema
+                    FROM (
+                        SELECT
+                            row_num,
+                            fetched_at,
+                            AVG(mark_px) OVER (
+                                ORDER BY row_num
+                                ROWS BETWEEN {slow - 1} PRECEDING AND CURRENT ROW
+                            ) AS ema
+                        FROM ordered
+                    )
                     WHERE row_num = {slow}
                 ),
                 slow_ema AS (
@@ -156,14 +228,17 @@ class IndicatorService:
                       ON f.fetched_at = s.fetched_at
                 ),
                 signal_seed AS (
-                    SELECT
-                        macd_row,
-                        fetched_at,
-                        AVG(macd) OVER (
-                            ORDER BY macd_row
-                            ROWS BETWEEN {signal - 1} PRECEDING AND CURRENT ROW
-                        ) AS signal
-                    FROM macd_base
+                    SELECT macd_row, fetched_at, signal
+                    FROM (
+                        SELECT
+                            macd_row,
+                            fetched_at,
+                            AVG(macd) OVER (
+                                ORDER BY macd_row
+                                ROWS BETWEEN {signal - 1} PRECEDING AND CURRENT ROW
+                            ) AS signal
+                        FROM macd_base
+                    )
                     WHERE macd_row = {signal}
                 ),
                 signal_ema AS (
@@ -240,18 +315,21 @@ class IndicatorService:
         
         seed = f"""
            seed AS (
-                SELECT
-                    row_num,
-                    fetched_at,
-                    AVG(gain) OVER (
-                        ORDER BY row_num
-                        ROWS BETWEEN {window - 1} PRECEDING AND CURRENT ROW
-                    ) AS avg_gain,
-                    AVG(loss) OVER (
-                        ORDER BY row_num
-                        ROWS BETWEEN {window - 1} PRECEDING AND CURRENT ROW
-                    ) AS avg_loss
-                FROM deltas
+                SELECT row_num, fetched_at, avg_gain, avg_loss
+                FROM (
+                    SELECT
+                        row_num,
+                        fetched_at,
+                        AVG(gain) OVER (
+                            ORDER BY row_num
+                            ROWS BETWEEN {window - 1} PRECEDING AND CURRENT ROW
+                        ) AS avg_gain,
+                        AVG(loss) OVER (
+                            ORDER BY row_num
+                            ROWS BETWEEN {window - 1} PRECEDING AND CURRENT ROW
+                        ) AS avg_loss
+                    FROM deltas
+                )
                 WHERE row_num = {window + 1}
             ),
         """
@@ -324,14 +402,17 @@ class IndicatorService:
 
         seed = f"""
             seed AS (
-                SELECT
-                    row_num,
-                    fetched_at,
-                    AVG(mark_px) OVER (
-                        ORDER BY row_num
-                        ROWS BETWEEN {window - 1} PRECEDING AND CURRENT ROW
-                    ) AS ema
-                FROM ordered
+                SELECT row_num, fetched_at, ema
+                FROM (
+                    SELECT
+                        row_num,
+                        fetched_at,
+                        AVG(mark_px) OVER (
+                            ORDER BY row_num
+                            ROWS BETWEEN {window - 1} PRECEDING AND CURRENT ROW
+                        ) AS ema
+                    FROM ordered
+                )
                 WHERE row_num = {window}
             ),
         """
