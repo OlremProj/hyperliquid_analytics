@@ -8,7 +8,7 @@ Agent d’analyse technique en cours de construction autour des données Hyperli
 - **Repository DuckDB** : schéma persistant pour `perp_universe`, `margin_tables`, `perp_asset_ctxs`, transactions explicites, accès `fetch_latest` & `fetch_history`, timestamp UTC automatique.
 - **Services** :
   - `AnalyticsService` orchestre le client Hyperliquid et le repository (ingestion async via `to_thread`, lectures latest/history).
-  - `IndicatorService` calcule des indicateurs (SMA pour l’instant) directement en SQL via DuckDB.
+  - `IndicatorService` calcule en 100 % SQL (DuckDB) les indicateurs SMA, EMA, RSI, MACD et Bollinger.
 - **CLI Click** : commandes `collect snapshot`, `show latest`, `show history`, `show indicator` avec option globale `--db-path`, sorties JSON prêtes pour piping.
 - **Tests unitaires** : couverture des modèles, client, services (ingestion & indicateurs), repository, CLI ; suite Pytest paramétrée.
 
@@ -48,6 +48,8 @@ python -m hyperliquid_analytics.cli show history -s BTC --limit 5
 # Calculer un indicateur (ex : SMA 20 périodes)
 python -m hyperliquid_analytics.cli show indicator sma -s BTC --window 20
 
+# Indicateurs disponibles (nov. 2025) : sma, ema, rsi, macd, bollinger
+
 # Spécifier un autre fichier DuckDB
 python -m hyperliquid_analytics.cli --db-path data/dev.duckdb collect snapshot
 ```
@@ -66,8 +68,9 @@ Astuce : exécuter `pip install -e .[dev]` avant les tests pour s’assurer que 
   - [x] Client async & modèles Pydantic
   - [x] Service + CLI de collecte/lecture
   - [x] Tests unitaires Repository / CLI / Scheduler
-  - [ ] Calculs d’indicateurs de base (SMA/EMA, RSI, MACD, Bollinger, VWAP) via DuckDB
-  - [ ] Scheduler d’ingestion périodique
+  - [x] Indicateurs de base (SMA/EMA, RSI, MACD, Bollinger) via DuckDB
+  - [ ] Extensions indicateurs : ATR, Stochastic, VWAP (données bougies/volume)
+  - [ ] Scheduler d’ingestion périodique + alertes locales
 
 - **🌐 Phase 2 — Analytics temps réel & API interne**
   - [ ] WebSocket trades / L2 book + stockage incrémental
@@ -85,6 +88,14 @@ Astuce : exécuter `pip install -e .[dev]` avant les tests pour s’assurer que 
   - [ ] Migration possible vers TimescaleDB / ClickHouse
   - [ ] Pipelines distribués, observabilité & monitoring
   - [ ] Modules analytiques avancés (backtesting, signaux ML)
+
+## Prochaines étapes (analyse auto & extensibilité)
+
+1. **Stockage bougies & volumes** : intégrer `fetch_ohlcv` (H/L/C/V) dans DuckDB pour préparer ATR, Stochastic, VWAP.
+2. **IndicatorService+** : ajouter ATR, Stochastic, VWAP dès que les données requises sont là (toujours en SQL).
+3. **AnalysisPipeline** : couche qui calcule les indicateurs sélectionnés puis évalue des règles (RSI oversold, croisement MACD, squeeze Bollinger…). Résultats stockés dans une table `analysis_events`.
+4. **CLI / Scheduler** : commande `analysis run` + mode daemon pour rafraîchir snapshots, indicateurs et signaux automatiquement.
+5. **Alerting & API** : exposer les signaux (JSON/API), préparer un tableau de bord et connecter des webhooks/alertes.
 
 ---
 
