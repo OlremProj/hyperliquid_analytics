@@ -109,16 +109,15 @@ def show_indicator(obj, indicator: str, symbol: str, window: int, limit: int | N
         )
     )
 
-    payload = asdict(indicator_result)
-    formatted_series: list[dict[str, Any]] = []
-    for ts, value in indicator_result.series:
-        entry: dict[str, Any] = {"timestamp": ts.isoformat()}
-        if isinstance(value, dict):
-            entry.update(value)
-        else:
-            entry["value"] = value
-        formatted_series.append(entry)
-    payload["series"] = formatted_series
+    payload = {
+        "symbol": indicator_result.symbol,
+        "indicator": indicator_type.value,
+        "metadata": indicator_result.metadata,
+        "series": [
+            {"timestamp": point.timestamp.isoformat(), **(point.values or {})}
+            for point in indicator_result.points
+        ],
+    }
     click.echo(json.dumps(payload, default=str))
 
 

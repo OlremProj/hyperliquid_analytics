@@ -8,7 +8,11 @@ import pytest
 from click.testing import CliRunner
 
 from hyperliquid_analytics.cli import app
-from hyperliquid_analytics.services.indicator_service import IndicatorResult, IndicatorType
+from hyperliquid_analytics.models.indicator_result_models import (
+    IndicatorPoint,
+    IndicatorResult,
+    IndicatorType,
+)
 
 
 class SnapshotStub(SimpleNamespace):
@@ -88,10 +92,16 @@ def stub_service(monkeypatch):
             return IndicatorResult(
                 symbol=symbol.upper(),
                 indicator=indicator,
-                params={"window": window, "limit": limit},
-                series=[
-                    (datetime(2025, 1, 1, tzinfo=timezone.utc), 100.0),
-                    (datetime(2025, 1, 2, tzinfo=timezone.utc), {"macd": 1.0, "signal": 0.5, "hist": 0.5}),
+                metadata={"window": window, "limit": limit},
+                points=[
+                    IndicatorPoint(
+                        timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                        values={"value": 100.0},
+                    ),
+                    IndicatorPoint(
+                        timestamp=datetime(2025, 1, 2, tzinfo=timezone.utc),
+                        values={"macd": 1.0, "signal": 0.5, "hist": 0.5},
+                    ),
                 ],
             )
 
@@ -175,7 +185,7 @@ def test_show_indicator_serializes_series_and_passes_args(runner, indicator_stub
     payload = json.loads(result.stdout)
     assert payload["symbol"] == "BTC"
     assert payload["indicator"] == IndicatorType.EMA.value
-    assert payload["params"] == {"window": 10, "limit": 2}
+    assert payload["metadata"] == {"window": 10, "limit": 2}
     assert payload["series"][0]["timestamp"] == "2025-01-01T00:00:00+00:00"
     assert payload["series"][0]["value"] == 100.0
     second = payload["series"][1]

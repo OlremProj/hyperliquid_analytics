@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from enum import Enum
 from typing import Any, Sequence
 
-from dataclasses import dataclass
 
 from hyperliquid_analytics.repository.perp_repository import PerpRepository
 from hyperliquid_analytics.services.analytics_service import AnalyticsService
+from hyperliquid_analytics.models.indicator_result_models import (
+    IndicatorType,
+    IndicatorResult,
+    IndicatorPoint,
+    wrap_scalar_series,
+    wrap_record_series,
+)
 
 
 class IndicatorService:
@@ -24,59 +29,50 @@ class IndicatorService:
         window: int | None = None,
         limit: int | None = None,
     ) -> IndicatorResult:
-       window = self._validate_window(window, indicator)
-       match indicator:
-            case IndicatorType.SMA:
-                series = await asyncio.to_thread(
-                    self._compute_sma_db,
-                    symbol,
-                    window,
-                    limit,
-                )
-            case IndicatorType.EMA:
-                series = await asyncio.to_thread(
-                    self._compute_ema_db,
-                    symbol,
-                    window,
-                    limit,
-                )
-            case IndicatorType.RSI:
-                series = await asyncio.to_thread(
-                    self._compute_rsi_db,
-                    symbol,
-                    window,
-                    limit,
-                )
-            case IndicatorType.MACD:
-                slow = window
-                fast = 12
-                signal = 9
-                series = await asyncio.to_thread(
-                    self._compute_macd_db,
-                    symbol,
-                    fast,
-                    slow,
-                    signal,
-                    limit,
-                )
-            case IndicatorType.BOLLINGER:
-                k = 2.0
-                series = await asyncio.to_thread(
-                    self._compute_bollinger_db,
-                    symbol,
-                    window,
-                    k,
-                    limit,
-                )
-            case _:
-                raise NotImplementedError(f"{indicator.value} not implemented yet")
+        period = self._validate_window(window, indicator)
 
-       return IndicatorResult(
-            symbol=symbol.upper(),
-            indicator=indicator,
-            params={"window": window, "limit": limit},
-            series=series,
-       )
+        if indicator is IndicatorType.SMA:
+            return await asyncio.to_thread(
+                self._compute_sma_db,
+                symbol,
+                period,
+                limit,
+            )
+        if indicator is IndicatorType.EMA:
+            return await asyncio.to_thread(
+                self._compute_ema_db,
+                symbol,
+                period,
+                limit,
+            )
+        if indicator is IndicatorType.RSI:
+            return await asyncio.to_thread(
+                self._compute_rsi_db,
+                symbol,
+                period,
+                limit,
+            )
+        if indicator is IndicatorType.MACD:
+            fast = 12
+            signal = 9
+            return await asyncio.to_thread(
+                self._compute_macd_db,
+                symbol,
+                fast,
+                period,
+                signal,
+                limit,
+            )
+        if indicator is IndicatorType.BOLLINGER:
+            k = 2.0
+            return await asyncio.to_thread(
+                self._compute_bollinger_db,
+                symbol,
+                period,
+                k,
+                limit,
+            )
+        raise NotImplementedError(f"{indicator.value} not implemented yet")
 
     def _compute_bollinger_db(
         self,
@@ -84,10 +80,11 @@ class IndicatorService:
         window: int = 20,
         k: float = 2.0,
         limit: int | None = None,
-    ) -> list[tuple[datetime, float | None]]:
+    ) -> IndicatorResult:
         params = [symbol.upper()]
-
+        limit_clause = ""
         if limit is not None:
+            limit_clause = "LIMIT ?"
             params.append(limit)
 
         query = f"""
@@ -120,20 +117,17 @@ class IndicatorService:
                 CASE WHEN row_num >= {window} THEN sma - {k} * stddev ELSE NULL END AS lower
             FROM bands
             ORDER BY fetched_at ASC
-            { "LIMIT ?" if limit is not None else "" }
+            {limit_clause}
         """
         rows = self._repo._conn.execute(query, params).fetchall()
-        return [
-                (
-                    ts,
-                    {
-                        "middle": None if middle is None else float(middle),
-                        "upper": None if upper is None else float(upper),
-                        "lower": None if lower is None else float(lower),
-                    },
-                )
-                for ts, middle, upper, lower in rows
-        ]
+        return wrap_record_series(
+            symbol,
+            IndicatorType.BOLLINGER,
+            rows,
+            fields=("middle", "upper", "lower"),
+            metadata={"window": window, "k": k, "limit": limit},
+        )
+
 
     def _compute_macd_db(
         self,
@@ -142,7 +136,7 @@ class IndicatorService:
         slow: int = 26,
         signal: int = 9,
         limit: int | None = None,
-    ) -> list[tuple[datetime, float | None]]:
+    ) -> IndicatorResult:
         alpha_fast = 2 / (fast + 1)
         beta_fast = 1 - alpha_fast
         alpha_slow = 2 / (slow + 1)
@@ -153,7 +147,9 @@ class IndicatorService:
             alpha_fast, beta_fast,    # EMAs rapides
             alpha_slow, beta_slow,    # EMAs lentes
         ]
+        limit_clause = ""
         if limit is not None:
+            limit_clause = "LIMIT ?"
             params.append(limit)
 
         query = f"""
@@ -256,32 +252,27 @@ class IndicatorService:
                     m.fetched_at,
                     m.macd,
                     s.signal,
-                    m.macd - s.signal AS histogram
+                    m.macd - s.signal AS hist
                 FROM macd_base m
                 JOIN signal_ema s ON m.macd_row = s.macd_row
                 ORDER BY m.fetched_at ASC
-                { "LIMIT ?" if limit is not None else "" }
+                {limit_clause}
                 """ 
         rows = self._repo._conn.execute(query, params).fetchall()
-        return [
-                (
-                    ts,
-                    {
-                        "macd": float(macd),
-                        "signal": float(sig),
-                        "hist": float(macd - sig) if hist is None else float(hist),
-                    },
-                )
-                for ts, macd, sig, hist in rows
-        ]
-        
+        return wrap_record_series(
+            symbol,
+            IndicatorType.MACD,
+            rows,
+            fields=("macd", "signal", "hist"),
+            metadata={"fast": fast, "slow": slow, "signal": signal, "limit": limit},
+        )
     
     def _compute_rsi_db(
         self,
         symbol: str,
         window: int,
         limit: int | None = None,
-    ) -> list[tuple[datetime, float | None]]:
+    ) -> IndicatorResult:
         params = [symbol.upper()]
 
         limit_clause = "LIMIT ?" if limit is not None else ""
@@ -372,14 +363,20 @@ class IndicatorService:
             {limit_clause}
         """
         rows = self._repo._conn.execute(query, params).fetchall()
-        return [(ts, float(val) if val is not None else None) for ts, val in rows]
+        return wrap_scalar_series(
+            symbol,
+            IndicatorType.RSI,
+            rows,
+            field="value",
+            metadata={"window": window, "limit": limit},
+        )
 
     def _compute_ema_db(
         self,
         symbol: str,
         window: int,
         limit: int | None = None,
-    ) -> list[tuple[datetime, float | None]]:
+    ) -> IndicatorResult:
         alpha = 2 / (window + 1)
         beta = 1 - alpha
         params = [symbol.upper(), alpha, beta]
@@ -446,14 +443,22 @@ class IndicatorService:
         """
 
         rows = self._repo._conn.execute(query, params).fetchall()
-        return [(ts, float(val) if val is not None else None) for ts, val in rows]
+
+        return wrap_scalar_series(
+            symbol,
+            IndicatorType.EMA,
+            rows,
+            field="value",
+            metadata={"window": window, "limit": limit},
+        )
+
 
     def _compute_sma_db(
         self,
         symbol: str,
         window: int,
         limit: int | None = None,
-    ) -> list[tuple[datetime, float | None]]:
+    ) -> IndicatorResult:
         if not symbol:
             raise ValueError("symbol must be provided")
         if window < 1:
@@ -494,11 +499,14 @@ class IndicatorService:
                 params,
             ).fetchall()
         )
-
-        return [
-            (fetched_at, float(sma) if sma is not None else None)
-            for fetched_at, sma in rows
-        ]
+        return wrap_scalar_series(
+            symbol,
+            IndicatorType.SMA,
+            rows,
+            field="value",
+            metadata={"window": window, "limit": limit},
+        )
+    
     
     @staticmethod
     def _validate_window(window: int | None, indicator: IndicatorType) -> int:
@@ -506,19 +514,3 @@ class IndicatorService:
             raise ValueError(f"window must be >= 1 for {indicator.value.upper()}")
         return window
 
-
-
-class IndicatorType(str, Enum):
-    SMA = "sma"
-    EMA = "ema"
-    RSI = "rsi"
-    MACD = "macd"
-    BOLLINGER = "bollinger"
-    VWAP = "vwap"
-
-@dataclass
-class IndicatorResult:
-    symbol: str
-    indicator: IndicatorType
-    params: dict[str, Any]
-    series: list[tuple[datetime, float | dict[str, float] | None]]
