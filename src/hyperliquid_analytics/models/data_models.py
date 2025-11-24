@@ -26,6 +26,7 @@ class TimeFrame(str, Enum):
         return self.value
 
 class OHLCVData(BaseModel):
+    symbol: str
     timestamp: datetime
     open: float
     low: float

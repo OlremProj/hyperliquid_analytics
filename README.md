@@ -9,7 +9,7 @@ Agent d’analyse technique en cours de construction autour des données Hyperli
 - **Services** :
   - `AnalyticsService` orchestre le client Hyperliquid et le repository (ingestion async via `to_thread`, lectures latest/history).
   - `IndicatorService` calcule en 100 % SQL (DuckDB) les indicateurs SMA, EMA, RSI, MACD et Bollinger.
-- **CLI Click** : commandes `collect snapshot`, `show latest`, `show history`, `show indicator` avec option globale `--db-path`, sorties JSON prêtes pour piping.
+- **CLI Click** : commandes `collect snapshot`, `collect candles`, `show latest`, `show history`, `show indicator` avec option globale `--db-path`, sorties JSON prêtes pour piping.
 - **Tests unitaires** : couverture des modèles, client, services (ingestion & indicateurs), repository, CLI ; suite Pytest paramétrée.
 
 ## Installation
@@ -38,6 +38,11 @@ Variables principales :
 ```bash
 # Collecter un snapshot complet et l’enregistrer en DuckDB
 python -m hyperliquid_analytics.cli collect snapshot
+
+# Collecter des bougies OHLCV (ex : 200x 1h sur BTC)
+python -m hyperliquid_analytics.cli collect candles -s BTC -t 1h -l 200
+# La commande vérifie d'abord la dernière bougie stockée et ne rapatrie
+# qu'en cas de gap > 1 intervalle (sauf si --limit force un backfill).
 
 # Dernier snapshot pour un symbole
 python -m hyperliquid_analytics.cli show latest -s BTC

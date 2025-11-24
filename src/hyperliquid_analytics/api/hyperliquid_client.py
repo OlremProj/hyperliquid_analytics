@@ -45,6 +45,7 @@ class HyperliquidClient:
         raw = await self._request(payload)
         candles = [
             OHLCVData(
+                symbol=symbol.upper(),
                 timestamp=datetime.fromtimestamp(item["t"] / 1000, tz=timezone.utc),
                 open=float(item["o"]),
                 high=float(item["h"]),

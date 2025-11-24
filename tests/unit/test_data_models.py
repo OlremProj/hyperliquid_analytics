@@ -13,6 +13,7 @@ from hyperliquid_analytics.models.data_models import (
 def test_ohlcv_data_valid():
     """Test création d'une bougie valide."""
     candle = OHLCVData(
+        symbol="BTC",
         timestamp=datetime(2024, 1, 1, 12, 0),
         open=100.0,
         high=110.0,
@@ -32,6 +33,7 @@ def test_ohlcv_data_high_lower_than_low():
     """Test qu'on ne peut pas avoir high < low."""
     with pytest.raises(ValidationError) as exc_info:
         OHLCVData(
+            symbol="BTC",
             timestamp=datetime(2024, 1, 1, 12, 0),
             open=100.0,            
             low=95.0,
@@ -47,6 +49,7 @@ def test_ohlcv_data_negative_volume():
     """Test qu'on ne peut pas avoir un volume négatif."""
     with pytest.raises(ValidationError):
         OHLCVData(
+            symbol="BTC",
             timestamp=datetime(2024, 1, 1, 12, 0),
             open=100.0,
             low=95.0,
@@ -60,6 +63,7 @@ def test_market_data_valid():
     """Test création de données de marché valides."""
     candles = [
         OHLCVData(
+            symbol="BTC",
             timestamp=datetime(2024, 1, 1, 12, 0),
             open=100.0,
             low=95.0,

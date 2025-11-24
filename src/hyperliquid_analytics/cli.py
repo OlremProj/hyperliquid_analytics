@@ -1,11 +1,10 @@
 import asyncio
 import json
-from dataclasses import asdict
-from typing import Any
 from pathlib import Path
 
 import click
 
+from hyperliquid_analytics.models.data_models import TimeFrame
 from hyperliquid_analytics.services.analytics_service import AnalyticsService
 from hyperliquid_analytics.services.indicator_service import IndicatorService, IndicatorType
 
@@ -30,6 +29,28 @@ def collect_group(ctx):
     """Actions de collecte de données Hyperliquid."""
     pass
 
+
+@collect_group.command("candles")
+@click.option("--symbol", "-s", required=True, help="Symbol (BTC, ETH...)")
+@click.option(
+    "--timeframe",
+    "-t",
+    type=click.Choice([tf.value for tf in TimeFrame]),
+    required=True,
+    help="1m, 5m, 15m, 1h, 4h, 1d",
+)
+@click.option("--limit", "-l", type=int, default=None, show_default=False)
+@click.pass_obj
+def collect_candles(obj, symbol, timeframe, limit):
+    service: AnalyticsService = obj["analytics_service"]
+    summary = asyncio.run(
+        service.save_candles(
+            symbol,
+            TimeFrame(timeframe),
+            limit=limit,
+        )
+    )
+    click.echo(json.dumps(summary, default=str))
 
 @collect_group.command("snapshot")
 @click.pass_obj

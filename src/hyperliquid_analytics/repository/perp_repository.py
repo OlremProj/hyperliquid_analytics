@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from hyperliquid_analytics.models.data_models import OHLCVData, TimeFrame
 from hyperliquid_analytics.models.perp_models import (
     MetaAndAssetCtxsResponse,
     PerpAssetContext,
@@ -66,6 +67,68 @@ class PerpRepository:
             );
             """
         )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS candles (
+                symbol TEXT,
+                timestamp TIMESTAMPTZ,
+                open DOUBLE,
+                high DOUBLE,
+                low DOUBLE,
+                close DOUBLE,       
+                volume DOUBLE,
+                timeframe text,
+                PRIMARY KEY (symbol, timeframe, timestamp)
+            );
+            """
+        )
+
+    def save_candles(self, symbol: str, timeframe: str, candles: Iterable[OHLCVData]) -> None:
+        rows = [
+            (
+                symbol.upper(),
+                candle.timestamp,
+                float(candle.open),
+                float(candle.high),
+                float(candle.low),
+                float(candle.close),
+                float(candle.volume),
+                timeframe,
+            )
+            for candle in candles
+        ]
+        if not rows:
+            return
+
+        self._conn.execute("BEGIN")
+        try:
+            self._conn.executemany(
+                """
+                INSERT OR REPLACE INTO candles
+                    (symbol, timestamp, open, high, low, close, volume, timeframe)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
+    def fetch_latest_candle_timestamp(self, symbol: str, timeframe: str) -> datetime | None:
+        row = self._conn.execute(
+            """
+            SELECT timestamp
+            FROM candles
+            WHERE symbol = ? AND timeframe = ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+            """,
+            (symbol.upper(), timeframe),
+        ).fetchone()
+        if row:
+            return row[0]
+        return None
 
     def save_meta(self, meta: PerpMeta) -> None:
         self._conn.execute("BEGIN")
@@ -159,6 +222,50 @@ class PerpRepository:
             ((asset.name, ctx) for asset, ctx in zip(snapshot.meta.universe, snapshot.asset_contexts)),
             fetched_at=fetched_at or datetime.now(timezone.utc),
         )
+    
+    def fetch_candles(
+            self,
+            symbol: str,
+            timeframe: TimeFrame | str,
+            *,
+            limit: int | None = None,
+            since: datetime | None = None,
+            ascending: bool = True,
+        ) -> list[OHLCVData]:
+        tf = timeframe.value if isinstance(timeframe, TimeFrame) else str(timeframe)
+        params = [symbol.upper(), tf]
+        filters = ["symbol = ?", "timeframe = ?"]
+
+        if since is not None:
+            filters.append("timestamp >= ?")
+            params.append(since)
+
+        order = "ASC" if ascending else "DESC"
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = "LIMIT ?"
+            params.append(limit)
+
+        query = f"""
+            SELECT timestamp, open, high, low, close, volume
+            FROM candles
+            WHERE {' AND '.join(filters)}
+            ORDER BY timestamp {order}
+            {limit_clause}
+        """
+        rows = self._conn.execute(query, params).fetchall()
+        return [
+            OHLCVData(
+                symbol=symbol.upper(),
+                timestamp=row[0],
+                open=row[1],
+                high=row[2],
+                low=row[3],
+                close=row[4],
+                volume=row[5],
+            )
+            for row in rows
+        ]
 
     def fetch_latest(self, symbol: str) -> PerpAssetContext | None:
         row = self._conn.execute(

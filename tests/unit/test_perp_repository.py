@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
+from hyperliquid_analytics.models.data_models import OHLCVData, TimeFrame
 from hyperliquid_analytics.models.perp_models import (
     MetaAndAssetCtxsResponse,
     PerpAssetContext,
@@ -106,6 +107,18 @@ def temporary_repo():
             repo_instance.close()
 
 
+def make_candle(ts: datetime, price: float) -> OHLCVData:
+    return OHLCVData(
+        symbol="BTC",
+        timestamp=ts,
+        open=price,
+        high=price + 5,
+        low=price - 5,
+        close=price + 1,
+        volume=10.0,
+    )
+
+
 def test_save_meta_persists_universe_and_tables(temporary_repo: PerpRepository):
     meta_response = build_meta_response()
 
@@ -173,6 +186,46 @@ def test_fetch_history_supports_limit_and_ordering(temporary_repo: PerpRepositor
     first_ts, _ = history[0]
     second_ts, _ = history[1]
     assert first_ts > second_ts
+
+
+def test_fetch_latest_candle_timestamp_returns_latest_entry(temporary_repo: PerpRepository):
+    base_time = datetime.now(timezone.utc) - timedelta(hours=2)
+    candles = [
+        make_candle(base_time, 100.0),
+        make_candle(base_time + timedelta(hours=1), 110.0),
+    ]
+    temporary_repo.save_candles("BTC", "1h", candles)
+
+    latest = temporary_repo.fetch_latest_candle_timestamp("btc", "1h")
+
+    assert latest == candles[-1].timestamp
+
+
+def test_fetch_candles_respects_limit_and_sorting(temporary_repo: PerpRepository):
+    base_time = datetime.now(timezone.utc) - timedelta(hours=4)
+    candles = [
+        make_candle(base_time + timedelta(hours=idx), 100.0 + idx) for idx in range(4)
+    ]
+    temporary_repo.save_candles("BTC", "1h", candles)
+
+    recent = temporary_repo.fetch_candles(
+        "btc",
+        TimeFrame.ONE_HOUR,
+        limit=2,
+        ascending=False,
+    )
+    assert len(recent) == 2
+    assert recent[0].timestamp > recent[1].timestamp
+
+    since = base_time + timedelta(hours=1, minutes=30)
+    asc = temporary_repo.fetch_candles(
+        "btc",
+        TimeFrame.ONE_HOUR,
+        since=since,
+        ascending=True,
+    )
+    assert all(c.timestamp >= since for c in asc)
+    assert asc[0].timestamp <= asc[-1].timestamp
 
 
 def test_save_snapshot_combines_meta_and_contexts(temporary_repo: PerpRepository):

@@ -8,6 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from hyperliquid_analytics.cli import app
+from hyperliquid_analytics.models.data_models import TimeFrame
 from hyperliquid_analytics.models.indicator_result_models import (
     IndicatorPoint,
     IndicatorResult,
@@ -37,6 +38,7 @@ def make_stub_service():
         def __init__(self):
             self.saved = False
             self.perp_repository = SimpleNamespace()
+            self.candle_calls: list[dict[str, object]] = []
 
         async def save_market_data(self):
             self.saved = True
@@ -60,6 +62,19 @@ def make_stub_service():
                     ContextStub({"symbol": symbol.upper(), "mark_price": 105.0}),
                 ),
             ][: limit or 2]
+
+        async def save_candles(self, symbol: str, timeframe: TimeFrame, limit: int):
+            self.candle_calls.append(
+                {"symbol": symbol, "timeframe": timeframe, "limit": limit}
+            )
+            return {
+                "symbol": symbol.upper(),
+                "timeframe": timeframe.value,
+                "status": "updated",
+                "requested": limit or 0,
+                "fetched": 3,
+                "last_timestamp": "2025-01-02T00:00:00+00:00",
+            }
 
     return StubService()
 
@@ -118,6 +133,35 @@ def stub_service(monkeypatch):
 @pytest.fixture
 def indicator_stub(stub_service):
     return stub_service._indicator_stub
+
+
+def test_collect_candles_invokes_service_and_outputs_summary(runner, stub_service):
+    result = runner.invoke(
+        app,
+        [
+            "collect",
+            "candles",
+            "-s",
+            "btc",
+            "-t",
+            "1h",
+            "-l",
+            "50",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "updated"
+    assert payload["symbol"] == "BTC"
+    assert payload["timeframe"] == "1h"
+    assert payload["requested"] == 50
+    assert payload["fetched"] == 3
+
+    call = stub_service.candle_calls[-1]
+    assert call["symbol"] == "btc"
+    assert call["timeframe"] is TimeFrame.ONE_HOUR
+    assert call["limit"] == 50
 
 
 def test_collect_snapshot_outputs_json(runner, stub_service):
