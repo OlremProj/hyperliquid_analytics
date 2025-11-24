@@ -19,3 +19,4 @@ htmlcov/
 .vscode/
 .idea/
 data/
+tmp_test.duckdb

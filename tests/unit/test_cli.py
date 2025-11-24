@@ -93,6 +93,7 @@ def stub_service(monkeypatch):
             symbol: str,
             indicator: IndicatorType,
             *,
+            timeframe: TimeFrame = TimeFrame.ONE_HOUR,
             window: int | None = None,
             limit: int | None = None,
         ):
@@ -100,6 +101,7 @@ def stub_service(monkeypatch):
                 {
                     "symbol": symbol,
                     "indicator": indicator,
+                    "timeframe": timeframe,
                     "window": window,
                     "limit": limit,
                 }
@@ -107,7 +109,7 @@ def stub_service(monkeypatch):
             return IndicatorResult(
                 symbol=symbol.upper(),
                 indicator=indicator,
-                metadata={"window": window, "limit": limit},
+                metadata={"window": window, "limit": limit, "timeframe": timeframe.value},
                 points=[
                     IndicatorPoint(
                         timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
@@ -229,7 +231,7 @@ def test_show_indicator_serializes_series_and_passes_args(runner, indicator_stub
     payload = json.loads(result.stdout)
     assert payload["symbol"] == "BTC"
     assert payload["indicator"] == IndicatorType.EMA.value
-    assert payload["metadata"] == {"window": 10, "limit": 2}
+    assert payload["metadata"] == {"window": 10, "limit": 2, "timeframe": TimeFrame.ONE_HOUR.value}
     assert payload["series"][0]["timestamp"] == "2025-01-01T00:00:00+00:00"
     assert payload["series"][0]["value"] == 100.0
     second = payload["series"][1]
@@ -240,6 +242,7 @@ def test_show_indicator_serializes_series_and_passes_args(runner, indicator_stub
     call = indicator_stub.calls[-1]
     assert call["symbol"] == "btc"
     assert call["indicator"] is IndicatorType.EMA
+    assert call["timeframe"] is TimeFrame.ONE_HOUR
     assert call["window"] == 10
     assert call["limit"] == 2
 

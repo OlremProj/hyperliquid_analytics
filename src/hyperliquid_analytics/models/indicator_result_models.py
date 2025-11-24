@@ -10,6 +10,8 @@ class IndicatorType(str, Enum):
     RSI = "rsi"
     MACD = "macd"
     BOLLINGER = "bollinger"
+    ATR = "atr"
+    STOCHASTIC = "STOCHASTIC"
     VWAP = "vwap"
 
 

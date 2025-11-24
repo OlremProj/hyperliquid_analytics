@@ -29,6 +29,27 @@ def collect_group(ctx):
     """Actions de collecte de données Hyperliquid."""
     pass
 
+@collect_group.command("show_candles")
+@click.option("--symbol", "-s", required=True, help="Symbol (BTC, ETH...)")
+@click.option(
+    "--timeframe",
+    "-t",
+    type=click.Choice([tf.value for tf in TimeFrame]),
+    required=True,
+    help="1m, 5m, 15m, 1h, 4h, 1d",
+)
+@click.option("--limit", "-l", type=int, default=None, show_default=False)
+@click.pass_obj
+def show_candles(obj, symbol, timeframe, limit):
+    service: AnalyticsService = obj["analytics_service"]
+    summary = asyncio.run(
+        service.get_candles(
+            symbol,
+            timeframe,
+            limit=limit,
+            )
+    )
+    click.echo(json.dumps(summary, default=str))
 
 @collect_group.command("candles")
 @click.option("--symbol", "-s", required=True, help="Symbol (BTC, ETH...)")
@@ -110,10 +131,18 @@ def show_history(obj, symbol, limit, since, ascending):
 @show_group.command("indicator")
 @click.argument("indicator")
 @click.option("--symbol", "-s", required=True)
+@click.option(
+    "--timeframe",
+    "-t",
+    type=click.Choice([tf.value for tf in TimeFrame]),
+    default=TimeFrame.ONE_HOUR.value,
+    show_default=True,
+    help="1m, 5m, 15m, 1h, 4h, 1d",
+)
 @click.option("--window", "-w", type=int, default=20)
 @click.option("--limit", "-l", type=int, default=None)
 @click.pass_obj
-def show_indicator(obj, indicator: str, symbol: str, window: int, limit: int | None):
+def show_indicator(obj, indicator: str, symbol: str,timeframe: TimeFrame, window: int, limit: int | None):
     indicator_service: IndicatorService = obj["indicator_service"]
     try:
         indicator_type = IndicatorType(indicator.lower())
@@ -125,6 +154,7 @@ def show_indicator(obj, indicator: str, symbol: str, window: int, limit: int | N
         indicator_service.compute_indicator(
             symbol,
             indicator_type,
+            timeframe=TimeFrame(timeframe),
             window=window,
             limit=limit,
         )
