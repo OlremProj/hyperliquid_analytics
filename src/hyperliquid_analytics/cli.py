@@ -8,6 +8,8 @@ from hyperliquid_analytics.models.data_models import TimeFrame
 from hyperliquid_analytics.services.analytics_service import AnalyticsService
 from hyperliquid_analytics.services.indicator_service import IndicatorService, IndicatorType
 
+from hyperliquid_analytics.config import Settings
+
 
 def make_service(db_path: Path | None) -> AnalyticsService:
     return AnalyticsService(db_path=db_path)
@@ -21,6 +23,7 @@ def app(ctx, db_path):
     analytics_service = make_service(db_path)
     ctx.obj["analytics_service"] = analytics_service
     ctx.obj["indicator_service"] = IndicatorService(analytics_service)
+    ctx.obj["settings"] = Settings()
 
 
 @app.group("collect")
@@ -170,6 +173,28 @@ def show_indicator(obj, indicator: str, symbol: str,timeframe: TimeFrame, window
         ],
     }
     click.echo(json.dumps(payload, default=str))
+
+@app.group("scheduler")
+@click.pass_context
+def scheduler_group(ctx):
+    """Pilote les fonctions de refresh data."""
+    pass
+
+@scheduler_group.command("run")
+@click.option(
+    "--timeframe",
+    "-t",
+    type=click.Choice([tf.value for tf in TimeFrame]),
+    required=True,
+    help="1m, 5m, 15m, 1h, 4h, 1d",
+)
+@click.pass_obj
+def run(obj, timeframe):
+    for symbol in obj["settings"].symbols:
+        asyncio.run(
+                obj["analytics_service"].save_candles(symbol, timeframe)
+                )
+
 
 
 if __name__ == "__main__":
