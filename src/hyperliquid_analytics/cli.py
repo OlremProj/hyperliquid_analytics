@@ -1,6 +1,8 @@
 import asyncio
 import json
+import time
 from pathlib import Path
+from typing import Awaitable, Callable, Sequence
 
 import click
 
@@ -185,26 +187,82 @@ def scheduler_group(ctx):
     "--timeframe",
     "-t",
     type=click.Choice([tf.value for tf in TimeFrame]),
+    multiple=True,
     required=True,
-    help="1m, 5m, 15m, 1h, 4h, 1d",
+    help="One or more timeframes (1m, 5m, 15m, 1h, 4h, 1d)",
+)
+@click.option(
+    "--interval",
+    "-i",
+    type=float,
+    default=0.0,
+    show_default=True,
+    help="Seconds to wait between iterations (0 to run once)",
+)
+@click.option(
+    "--iterations",
+    type=int,
+    default=0,
+    show_default=True,
+    help="Max iterations when using --interval (0 = infinite until Ctrl+C)",
+)
+@click.option(
+    "--snapshot/--no-snapshot",
+    default=False,
+    show_default=True,
+    help="Collect market snapshot before candles",
 )
 @click.pass_obj
-def run(obj, timeframe):
+def run(obj, timeframe: Sequence[str], interval: float, iterations: int, snapshot: bool):
     analytics_service: AnalyticsService = obj["analytics_service"]
-    tf = TimeFrame(timeframe)
-    for symbol in obj["settings"].symbols:
-        run_task(
-               analytics_service.save_candles,
-               symbol=symbol,
-               timeframe=tf,
-        )
+    settings: Settings = obj["settings"]
+    symbols = settings.symbols
+    timeframes = [TimeFrame(value) for value in timeframe]
 
-def run_task(runner, *, symbol: str, timeframe: TimeFrame, **kwargs):
+    def run_iteration() -> None:
+        if snapshot:
+            result = run_async_task(
+                "snapshot",
+                lambda: analytics_service.save_market_data(),
+            )
+            if result:
+                _, fetched_at = result
+                click.echo(f"[snapshot] fetched_at={fetched_at.isoformat()}")
+
+        for symbol in symbols:
+            for tf in timeframes:
+                result = run_async_task(
+                    f"candles:{symbol}:{tf.value}",
+                    lambda symbol=symbol, tf=tf: analytics_service.save_candles(symbol, tf),
+                )
+                if isinstance(result, dict):
+                    status = result.get("status", "unknown")
+                    fetched = result.get("fetched")
+                    click.echo(
+                        f"[candles] symbol={symbol} timeframe={tf.value} status={status} fetched={fetched}"
+                    )
+                elif result is not None:
+                    click.echo(f"[candles] symbol={symbol} timeframe={tf.value} completed")
+
+    iteration = 0
     try:
-        result = asyncio.run(runner(symbol, timeframe, **kwargs))
-        click.echo(json.dumps(result, default=str))
+        while True:
+            iteration += 1
+            run_iteration()
+            if interval <= 0:
+                break
+            if iterations > 0 and iteration >= iterations:
+                break
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        click.echo("Scheduler stopped.")
+
+
+def run_async_task(tag: str, coro_factory: Callable[[], Awaitable[object]]):
+    try:
+        return asyncio.run(coro_factory())
     except Exception as exc:
-        click.echo(f"[ERROR] : {symbol} :: {timeframe} -> {exc}", err=True)
+        click.echo(f"[{tag}] ERROR: {exc}", err=True)
         return None
 
 

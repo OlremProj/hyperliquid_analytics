@@ -55,6 +55,11 @@ python -m hyperliquid_analytics.cli show indicator sma -s BTC -t 1h --window 20
 
 # Indicateurs disponibles (nov. 2025) : sma, ema, rsi, macd, bollinger, atr, stochastic, vwap
 
+# Scheduler basique (collecte périodique des bougies)
+python -m hyperliquid_analytics.cli scheduler run -t 1h -t 4h --interval 300 --iterations 0 --snapshot
+# `--interval` relance la collecte toutes les 5 minutes, `--iterations 0` = boucle infinie (Ctrl+C pour arrêter)
+# utilise les symboles définis dans .env et journalise chaque collecte
+
 # Spécifier un autre fichier DuckDB
 python -m hyperliquid_analytics.cli --db-path data/dev.duckdb collect snapshot
 ```
@@ -75,7 +80,8 @@ Astuce : exécuter `pip install -e .[dev]` avant les tests pour s’assurer que 
   - [x] Tests unitaires Repository / CLI / Scheduler
   - [x] Indicateurs de base (SMA/EMA, RSI, MACD, Bollinger) via DuckDB
 - [x] Extensions indicateurs : ATR, Stochastic, VWAP (calculs 100 % SQL sur `candles`)
-  - [ ] Scheduler d’ingestion périodique + alertes locales
+- [x] Scheduler d’ingestion périodique (CLI `scheduler run`)
+- [ ] Alertes locales + jobs dédiés (analysis pipeline)
 
 - **🌐 Phase 2 — Analytics temps réel & API interne**
   - [ ] WebSocket trades / L2 book + stockage incrémental
@@ -96,11 +102,10 @@ Astuce : exécuter `pip install -e .[dev]` avant les tests pour s’assurer que 
 
 ## Prochaines étapes (analyse auto & extensibilité)
 
-1. **Stockage bougies & volumes** : intégrer `fetch_ohlcv` (H/L/C/V) dans DuckDB pour préparer ATR, Stochastic, VWAP.
-2. **IndicatorService+** : ajouter ATR, Stochastic, VWAP dès que les données requises sont là (toujours en SQL).
-3. **AnalysisPipeline** : couche qui calcule les indicateurs sélectionnés puis évalue des règles (RSI oversold, croisement MACD, squeeze Bollinger…). Résultats stockés dans une table `analysis_events`.
-4. **CLI / Scheduler** : commande `analysis run` + mode daemon pour rafraîchir snapshots, indicateurs et signaux automatiquement.
-5. **Alerting & API** : exposer les signaux (JSON/API), préparer un tableau de bord et connecter des webhooks/alertes.
+1. **Scheduler+** : ajouter un mode multi-timeframes configurable, monitoring du rate limit et intégration future du listener WebSocket.
+2. **AnalysisPipeline** : couche qui calcule les indicateurs sélectionnés puis évalue des règles (RSI oversold, croisement MACD, squeeze Bollinger…). Résultats stockés dans une table `analysis_events`.
+3. **Alerting & API** : exposer les signaux (JSON/API), préparer un tableau de bord et connecter des webhooks/alertes.
+4. **WebSocket listener** : ingestion temps réel (trades / chandelles) avec reprise automatique et backfill ciblé.
 
 ---
 

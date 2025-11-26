@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from click.testing import CliRunner
 
-from hyperliquid_analytics.cli import app
+from hyperliquid_analytics.cli import app, run_async_task
 from hyperliquid_analytics.models.data_models import TimeFrame
 from hyperliquid_analytics.models.indicator_result_models import (
     IndicatorPoint,
@@ -63,7 +63,7 @@ def make_stub_service():
                 ),
             ][: limit or 2]
 
-        async def save_candles(self, symbol: str, timeframe: TimeFrame, limit: int):
+        async def save_candles(self, symbol: str, timeframe: TimeFrame, limit: int | None = None):
             self.candle_calls.append(
                 {"symbol": symbol, "timeframe": timeframe, "limit": limit}
             )
@@ -83,6 +83,10 @@ def make_stub_service():
 def stub_service(monkeypatch):
     service = make_stub_service()
     monkeypatch.setattr("hyperliquid_analytics.cli.make_service", lambda db_path: service)
+    class StubSettings:
+        def __init__(self):
+            self.symbols = ["BTC", "ETH"]
+    monkeypatch.setattr("hyperliquid_analytics.cli.Settings", lambda: StubSettings())
 
     class StubIndicatorService:
         def __init__(self):
@@ -259,3 +263,56 @@ def test_show_indicator_requires_symbol_option(runner):
 
     assert result.exit_code != 0
     assert "Missing option '--symbol'" in result.output
+
+
+def test_scheduler_run_triggers_candles_for_each_symbol(runner, stub_service):
+    result = runner.invoke(
+        app,
+        [
+            "scheduler",
+            "run",
+            "-t",
+            "1h",
+        ],
+    )
+
+    assert result.exit_code == 0
+    # two symbols, one timeframe
+    assert len(stub_service.candle_calls) == 2
+    assert stub_service.candle_calls[0]["symbol"] == "BTC"
+    assert stub_service.candle_calls[0]["timeframe"] is TimeFrame.ONE_HOUR
+
+
+def test_scheduler_run_supports_interval_and_iterations(monkeypatch, runner, stub_service):
+    sleep_calls: list[float] = []
+    monkeypatch.setattr("hyperliquid_analytics.cli.time.sleep", lambda seconds: sleep_calls.append(seconds))
+
+    result = runner.invoke(
+        app,
+        [
+            "scheduler",
+            "run",
+            "-t",
+            "1h",
+            "--interval",
+            "0.1",
+            "--iterations",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    # two iterations -> 4 candle saves (2 symbols * 2 iterations)
+    assert len(stub_service.candle_calls) == 4
+    # interval sleep invoked once between the two iterations
+    assert sleep_calls == [0.1]
+
+
+def test_run_async_task_logs_error(capfd):
+    async def failing():
+        raise RuntimeError("boom")
+
+    result = run_async_task("test", lambda: failing())
+    assert result is None
+    captured = capfd.readouterr()
+    assert "[test] ERROR" in captured.err
