@@ -190,11 +190,22 @@ def scheduler_group(ctx):
 )
 @click.pass_obj
 def run(obj, timeframe):
+    analytics_service: AnalyticsService = obj["analytics_service"]
+    tf = TimeFrame(timeframe)
     for symbol in obj["settings"].symbols:
-        asyncio.run(
-                obj["analytics_service"].save_candles(symbol, timeframe)
-                )
+        run_task(
+               analytics_service.save_candles,
+               symbol=symbol,
+               timeframe=tf,
+        )
 
+def run_task(runner, *, symbol: str, timeframe: TimeFrame, **kwargs):
+    try:
+        result = asyncio.run(runner(symbol, timeframe, **kwargs))
+        click.echo(json.dumps(result, default=str))
+    except Exception as exc:
+        click.echo(f"[ERROR] : {symbol} :: {timeframe} -> {exc}", err=True)
+        return None
 
 
 if __name__ == "__main__":
