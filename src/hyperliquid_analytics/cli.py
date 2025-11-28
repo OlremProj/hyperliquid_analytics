@@ -192,24 +192,24 @@ def scheduler_group(ctx):
     show_default=True,
     help="1m, 5m, 15m, 1h, 4h, 1d",
 )
-@click.pass_obj 
+@click.pass_obj
 def run_ws(obj, timeframe: TimeFrame):
-    settings = obj["settings"]
+    settings: Settings = obj["settings"]
     analytics_service: AnalyticsService = obj["analytics_service"]
-    asyncio.run(ws_runner(analytics_service, settings, timeframe))
+    asyncio.run(ws_runner(analytics_service, settings, TimeFrame(timeframe)))
 
 
 async def ws_runner(analytics_service: AnalyticsService, settings: Settings, timeframe: TimeFrame):
-    last_by_symbol: dict[tuple[str,str], datetime] = {}
+    last_by_symbol: dict[tuple[str, str], datetime] = {}
 
     for sym in settings.symbols:
         ts = await asyncio.to_thread(
-                analytics_service.get_latest_candle_timestamp
-                sym,
-                timeframe,
-                )
+            analytics_service.perp_repository.fetch_latest_candle_timestamp,
+            sym,
+            timeframe.value,
+        )
         if ts:
-            last_by_symbol[(sym, timeframe)] = ts
+            last_by_symbol[(sym, timeframe.value)] = ts
 
     async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(5),
@@ -226,32 +226,46 @@ async def ws_runner(analytics_service: AnalyticsService, settings: Settings, tim
                         continue
                     data = message["data"]
                     symbol = data["s"]
-                    i = data["i"]
-                    timeframe = TimeFrame(data["i"])
+                    interval = data["i"]
+                    tf = TimeFrame(interval)
                     start_ts = datetime.fromtimestamp(data["t"] / 1000, tz=timezone.utc)
-                    key = (symbol, i)
+                    key = (symbol, interval)
                     last = last_by_symbol.get(key)
                     if last and start_ts > last:
-                        # lancer un to_thread qui rattrape les element manquant pendnat qu'on continue à trainer les element des ws '
+                        gap = int((start_ts - last).total_seconds() // (tf.millis / 1000))
+                        if gap > 1:
+                            await asyncio.to_thread(
+                                analytics_service.save_candles,
+                                symbol,
+                                tf,
+                                min(gap, 500),
+                            )
                     candle = OHLCVData(
-                            symbol=symbol,
-                            timestamp=start_ts,
-                            open=float(data["o"]),
-                            high=float(data["h"]),
-                            low=float(data["l"]),
-                            close=float(data["c"]),
-                            volume=float(data["v"]),
+                        symbol=symbol,
+                        timestamp=start_ts,
+                        open=float(data["o"]),
+                        high=float(data["h"]),
+                        low=float(data["l"]),
+                        close=float(data["c"]),
+                        volume=float(data["v"]),
                     )
-                    click.echo(f"[ws] {candle}")
+                    await asyncio.to_thread(
+                        analytics_service.perp_repository.save_candles,
+                        symbol,
+                        interval,
+                        [candle],
+                    )
+                    last_by_symbol[key] = start_ts
+                    click.echo(f"[ws] symbol={symbol} tf={interval} ts={start_ts.isoformat()}")
 
 
   
-async def subscribe(ws, symbols, timeframe):
+async def subscribe(ws, symbols, timeframe: TimeFrame):
     for sym in symbols:
         await ws.send(
                     json.dumps({
                         "method":"subscribe",
-                        "subscription": {"type": "candle", "coin": sym, "interval": timeframe}
+                        "subscription": {"type": "candle", "coin": sym, "interval": timeframe.value}
                         })
                 )
 

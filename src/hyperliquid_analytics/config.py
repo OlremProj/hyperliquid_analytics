@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     ws_uri: str = Field(default=False)
 
     @computed_field(return_type=list[str])
+    @property
     def symbols(self) -> list[str]:
         raw = self.symbols_raw.split(",")
         symbols = [item.strip().upper() for item in raw if item.strip()]
@@ -45,7 +46,7 @@ class Settings(BaseSettings):
     @classmethod
     def symbols_raw_cannot_be_empty(cls, value: str):
         if not value or value.isspace():
-            raise ValueError("At lease one symbol must ne provided")
+            raise ValueError("At least one symbol must be provided")
         return value
 
 @lru_cache(maxsize=1)
