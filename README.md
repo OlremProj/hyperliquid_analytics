@@ -9,6 +9,7 @@ Agent d’analyse technique en cours de construction autour des données Hyperli
 - **Services** :
   - `AnalyticsService` orchestre le client Hyperliquid et le repository (ingestion async via `to_thread`, lectures latest/history).
   - `IndicatorService` calcule en 100 % SQL (DuckDB) les indicateurs SMA, EMA, RSI, MACD, Bollinger, ATR, Stochastic et VWAP.
+  - `AnalysisPipeline` (Nouveau) : Structure pour exécuter des stratégies (`BaseStrategy`) et générer des `Signal`.
 - **CLI Click** : commandes `collect snapshot`, `collect candles`, `show latest`, `show history`, `show indicator` avec option globale `--db-path`, sorties JSON prêtes pour piping.
 - **Tests unitaires** : couverture des modèles, client, services (ingestion & indicateurs), repository, CLI ; suite Pytest paramétrée.
 
@@ -83,11 +84,13 @@ Astuce : exécuter `pip install -e .[dev]` avant les tests pour s’assurer que 
   - [x] Service + CLI de collecte/lecture
   - [x] Tests unitaires Repository / CLI / Scheduler
   - [x] Indicateurs de base (SMA/EMA, RSI, MACD, Bollinger) via DuckDB
-- [x] Extensions indicateurs : ATR, Stochastic, VWAP (calculs 100 % SQL sur `candles`)
-- [x] Scheduler d’ingestion périodique (CLI `scheduler run`)
-- [ ] Alertes locales + jobs dédiés (analysis pipeline)
+  - [x] Extensions indicateurs : ATR, Stochastic, VWAP (calculs 100 % SQL sur `candles`)
+  - [x] Scheduler d’ingestion périodique (CLI `scheduler run`)
+  - [x] Architecture Pipeline (`AnalysisPipeline`, `BaseStrategy`, `Signal`)
+  - [ ] Alertes locales + jobs dédiés (analysis pipeline)
 
 - **🌐 Phase 2 — Analytics temps réel & API interne**
+  - [ ] **Architecture découplée** : `scheduler ws` (collecte seule) vs `strategy run` (analyse parallèle).
   - [ ] WebSocket trades / L2 book + stockage incrémental
   - [ ] API FastAPI exposant snapshots & indicateurs
   - [ ] Tableau de bord (Streamlit / front custom)
@@ -104,12 +107,11 @@ Astuce : exécuter `pip install -e .[dev]` avant les tests pour s’assurer que 
   - [ ] Pipelines distribués, observabilité & monitoring
   - [ ] Modules analytiques avancés (backtesting, signaux ML)
 
-## Prochaines étapes (analyse auto & extensibilité)
+## Prochaines étapes
 
-1. **Scheduler WS+** : persistance des bougies WS (toutes les granularités), monitoring du retard et instrumentation.
-2. **AnalysisPipeline** : couche qui calcule les indicateurs sélectionnés puis évalue des règles (RSI oversold, croisement MACD, squeeze Bollinger…). Résultats stockés dans une table `analysis_events`.
-3. **Alerting & API** : exposer les signaux (JSON/API), préparer un tableau de bord et connecter des webhooks/alertes.
-4. **Tests WS** : mocks WebSocket pour valider la logique de backfill/insert (pytests async).
+1.  **`scheduler ws`** : Optimiser pour l'ingestion pure (sans calculs bloquants).
+2.  **`strategy run`** : Nouvelle commande dédiée qui surveille la DB et exécute les stratégies en asynchrone.
+3.  **Tests** : Ajouter des mocks pour valider le flux complet WS -> DB -> Strategy.
 
 ---
 
