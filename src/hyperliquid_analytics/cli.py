@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import json
 import time
 from pathlib import Path
-from typing import Awaitable, Callable, Sequence
+from typing import Any, Callable, Coroutine, Sequence
 import websockets
 import click
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
@@ -345,7 +345,7 @@ def run(obj, timeframe: Sequence[str], interval: float, iterations: int, snapsho
         click.echo("Scheduler stopped.")
 
 
-def run_async_task(tag: str, coro_factory: Callable[[], Awaitable[object]]):
+def run_async_task(tag: str, coro_factory: Callable[[], Coroutine[Any, Any, Any]]):
     try:
         return asyncio.run(coro_factory())
     except Exception as exc:

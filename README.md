@@ -55,7 +55,11 @@ python -m hyperliquid_analytics.cli show indicator sma -s BTC -t 1h --window 20
 
 # Indicateurs disponibles (nov. 2025) : sma, ema, rsi, macd, bollinger, atr, stochastic, vwap
 
-# Scheduler basique (collecte périodique des bougies)
+# Ingestion temps réel (WebSocket bougies + backfill auto)
+python -m hyperliquid_analytics.cli scheduler ws -t 5m
+# Maintient DuckDB à jour à partir du flux Hyperliquid et rattrape les trous via REST
+
+# Scheduler basique (collecte périodique)
 python -m hyperliquid_analytics.cli scheduler run -t 1h -t 4h --interval 300 --iterations 0 --snapshot
 # `--interval` relance la collecte toutes les 5 minutes, `--iterations 0` = boucle infinie (Ctrl+C pour arrêter)
 # utilise les symboles définis dans .env et journalise chaque collecte
@@ -102,10 +106,10 @@ Astuce : exécuter `pip install -e .[dev]` avant les tests pour s’assurer que 
 
 ## Prochaines étapes (analyse auto & extensibilité)
 
-1. **Scheduler+** : ajouter un mode multi-timeframes configurable, monitoring du rate limit et intégration future du listener WebSocket.
+1. **Scheduler WS+** : persistance des bougies WS (toutes les granularités), monitoring du retard et instrumentation.
 2. **AnalysisPipeline** : couche qui calcule les indicateurs sélectionnés puis évalue des règles (RSI oversold, croisement MACD, squeeze Bollinger…). Résultats stockés dans une table `analysis_events`.
 3. **Alerting & API** : exposer les signaux (JSON/API), préparer un tableau de bord et connecter des webhooks/alertes.
-4. **WebSocket listener** : ingestion temps réel (trades / chandelles) avec reprise automatique et backfill ciblé.
+4. **Tests WS** : mocks WebSocket pour valider la logique de backfill/insert (pytests async).
 
 ---
 
