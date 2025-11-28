@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     symbols_raw: str = Field(default=False)
     log_level: str = Field(default="INFO")
     enable_auto_trading: bool = Field(default=False)
+    ws_uri: str = Field(default=False)
 
     @computed_field(return_type=list[str])
     def symbols(self) -> list[str]:

@@ -113,6 +113,9 @@ class AnalyticsService:
             "last_timestamp": latest_ts.isoformat(),
         }
 
+    def get_latest_candle_timestamp(self, symbol: str, timeframe: str) -> datetime | None:
+        return self.perp_repository.fetch_latest_candle_timestamp(symbol, timeframe)
+    
     async def get_candles(
         self,
         symbol: str,

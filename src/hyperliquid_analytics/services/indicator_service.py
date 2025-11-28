@@ -118,7 +118,6 @@ class IndicatorService:
                 signal_window,
                 limit,
             )
-        raise NotImplementedError(f"{indicator.value} not implemented yet")
 
     def _compute_bollinger_db(
         self,

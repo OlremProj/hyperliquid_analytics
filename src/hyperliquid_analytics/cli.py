@@ -1,12 +1,13 @@
 import asyncio
+from datetime import datetime, timezone
 import json
 import time
 from pathlib import Path
 from typing import Awaitable, Callable, Sequence
-
+import websockets
 import click
-
-from hyperliquid_analytics.models.data_models import TimeFrame
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
+from hyperliquid_analytics.models.data_models import OHLCVData, TimeFrame
 from hyperliquid_analytics.services.analytics_service import AnalyticsService
 from hyperliquid_analytics.services.indicator_service import IndicatorService, IndicatorType
 
@@ -181,6 +182,78 @@ def show_indicator(obj, indicator: str, symbol: str,timeframe: TimeFrame, window
 def scheduler_group(ctx):
     """Pilote les fonctions de refresh data."""
     pass
+
+@scheduler_group.command("ws")
+@click.option(
+    "--timeframe",
+    "-t",
+    type=click.Choice([tf.value for tf in TimeFrame]),
+    default=TimeFrame.ONE_HOUR.value,
+    show_default=True,
+    help="1m, 5m, 15m, 1h, 4h, 1d",
+)
+@click.pass_obj 
+def run_ws(obj, timeframe: TimeFrame):
+    settings = obj["settings"]
+    analytics_service: AnalyticsService = obj["analytics_service"]
+    asyncio.run(ws_runner(analytics_service, settings, timeframe))
+
+
+async def ws_runner(analytics_service: AnalyticsService, settings: Settings, timeframe: TimeFrame):
+    last_by_symbol: dict[tuple[str,str], datetime] = {}
+
+    for sym in settings.symbols:
+        ts = await asyncio.to_thread(
+                analytics_service.get_latest_candle_timestamp
+                sym,
+                timeframe,
+                )
+        if ts:
+            last_by_symbol[(sym, timeframe)] = ts
+
+    async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(5),
+                wait=wait_exponential(min=1, max=30),
+            ):
+        
+        with attempt:
+        
+            async with websockets.connect(settings.ws_uri) as ws:
+                await subscribe(ws, settings.symbols, timeframe)
+                async for raw in ws:
+                    message = json.loads(raw)
+                    if message.get("channel") != "candle":
+                        continue
+                    data = message["data"]
+                    symbol = data["s"]
+                    i = data["i"]
+                    timeframe = TimeFrame(data["i"])
+                    start_ts = datetime.fromtimestamp(data["t"] / 1000, tz=timezone.utc)
+                    key = (symbol, i)
+                    last = last_by_symbol.get(key)
+                    if last and start_ts > last:
+                        # lancer un to_thread qui rattrape les element manquant pendnat qu'on continue à trainer les element des ws '
+                    candle = OHLCVData(
+                            symbol=symbol,
+                            timestamp=start_ts,
+                            open=float(data["o"]),
+                            high=float(data["h"]),
+                            low=float(data["l"]),
+                            close=float(data["c"]),
+                            volume=float(data["v"]),
+                    )
+                    click.echo(f"[ws] {candle}")
+
+
+  
+async def subscribe(ws, symbols, timeframe):
+    for sym in symbols:
+        await ws.send(
+                    json.dumps({
+                        "method":"subscribe",
+                        "subscription": {"type": "candle", "coin": sym, "interval": timeframe}
+                        })
+                )
 
 @scheduler_group.command("run")
 @click.option(
