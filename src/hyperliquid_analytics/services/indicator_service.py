@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 from hyperliquid_analytics.models.data_models import TimeFrame
 from hyperliquid_analytics.repository.perp_repository import PerpRepository

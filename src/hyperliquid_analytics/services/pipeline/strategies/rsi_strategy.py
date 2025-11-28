@@ -1,19 +1,18 @@
-from time import time
+from hyperliquid_analytics.models.data_models import TimeFrame
 from hyperliquid_analytics.models.indicator_result_models import IndicatorType
+from hyperliquid_analytics.models.signal_models import Signal
 from hyperliquid_analytics.services.pipeline.interfaces import BaseStrategy
-from hyperliquid_analytics.services.indicator_service import IndicatorService 
 
 class RsiStrategy(BaseStrategy):
-    def __init__(self) -> None:
-        self.indicator_service = IndicatorService
-        pass
 
     async def analyze(self, symbol: str, timeframe: TimeFrame) -> Signal | None:
-        await super().analyze(symbol, timeframe)
-        rsi_result = self.indicator_service.compute_indicator(
-                                                            symbol,
-                                                            IndicatorType.RSI,
-                                                            timeframe=timeframe,
-                    )
+        rsi_result = await self.indicators.compute_indicator(
+                    symbol=symbol,
+                    indicator=IndicatorType.RSI,
+                    timeframe=timeframe,
+                    window=14,
+        )
+        last_rsi = rsi_result.points[-1].values["rsi"]
+        print(f" [DEBUG] {symbol} RSI: {last_rsi}")
 
 
